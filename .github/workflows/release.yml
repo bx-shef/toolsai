@@ -1,0 +1,148 @@
+# Выпуск релиза. Два входа:
+#
+#   * пуш тега v* — тег СВЕРЯЕТСЯ с VERSION из install/version.php;
+#   * workflow_dispatch от main — тег ВЫВОДИТСЯ из VERSION и ставится сам.
+#
+# Второй вход обязателен: пуш тегов бывает недоступен (другие права, прокси
+# сессии), а релиз выпускать надо.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Релиз не вытесняем: наполовину выпущенный релиз чинить руками дороже, чем
+# подождать предыдущий.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v4
+        with:
+          # Нужны теги целиком: занятый тег ловим заранее, а не в момент
+          # создания релиза.
+          fetch-depth: 0
+
+      - name: Поставить PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+          coverage: none
+
+      - name: Определить версию и тег
+        id: meta
+        # Значения из github.* кладём в переменные окружения, а не подставляем
+        # в текст скрипта: имя ветки или тега попало бы в него как код.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(./build.sh --version)"
+          if [ -z "$version" ]
+          then
+            echo '::error::Не удалось прочитать VERSION из install/version.php'
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = 'workflow_dispatch' ]
+          then
+            if [ "$REF" != 'refs/heads/main' ]
+            then
+              echo "::error::Запускать можно только от main, а запущено от ${REF}"
+              exit 1
+            fi
+
+            tag="v${version}"
+
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null
+            then
+              echo "::error::Тег ${tag} уже занят. Поднимите VERSION в install/version.php"
+              exit 1
+            fi
+          else
+            # Тегу не доверяем: на портал уехал бы архив, версия которого врёт,
+            # а версия — единственный способ понять, что там стоит.
+            tag="$REF_NAME"
+
+            if [ "$tag" != "v${version}" ]
+            then
+              echo "::error::Тег ${tag} не совпадает с VERSION ${version} из install/version.php"
+              exit 1
+            fi
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Версия ${version}, тег ${tag}"
+
+      - name: Собрать архив
+        run: ./build.sh
+
+      - name: Собрать примечания к релизу
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          # Секция «## <версия> <что угодно>» до следующего «## ».
+          # Сравниваем префикс строкой, а не регулярным выражением: точки в
+          # номере версии иначе совпали бы с любым символом.
+          awk -v pre="## ${VERSION} " '
+            index($0, pre) == 1 { inside = 1; next }
+            inside && index($0, "## ") == 1 { exit }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+
+          if [ ! -s notes.md ]
+          then
+            printf 'Версия %s. Изменения — в CHANGELOG.md.\n' "$VERSION" > notes.md
+          fi
+
+          cat notes.md
+
+      - name: Выпустить релиз
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1
+          then
+            echo "::error::Релиз ${TAG} уже существует"
+            exit 1
+          fi
+
+          # ⚠ Тег ставится ЗДЕСЬ, ПОСЛЕ успешной сборки. Поставленный раньше,
+          # он пережил бы упавшую сборку, и следующая попытка упёрлась бы в
+          # занятый тег.
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            shef.toolsai.zip
+
+      # Последним шагом, уже после выкладки релиза: без секретов шаг
+      # пропускается и релиз НЕ падает. Невыложенный релиз чинить нечем, а
+      # отставший Packagist догоняется кнопкой Update за десять секунд.
+      - name: Обновить пакет на Packagist
+        if: env.PACKAGIST_USERNAME != '' && env.PACKAGIST_TOKEN != ''
+        env:
+          PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+          PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+        run: |
+          # --fail: без него 4xx от Packagist не виден, и шаг зеленеет,
+          # ничего не обновив.
+          curl -sS --fail -X POST -H 'Content-Type: application/json' \
+            -d "{\"repository\":{\"url\":\"https://github.com/${GITHUB_REPOSITORY}\"}}" \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_TOKEN}"

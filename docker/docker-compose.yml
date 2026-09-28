@@ -1,0 +1,68 @@
+# Стенд для проверки shef.toolsai на коробке Битрикс24 в Docker.
+#
+# Не для боевого портала: пароли простые, отладка включена. Порядок работы —
+# docker/README.md и docs/agent-docker-test.md.
+#
+#   portal       — apache + mod_php 8.2, как на BitrixVM (nginx -> apache): у
+#                  mod_php нет fastcgi_finish_request, и эндпоинт обязан
+#                  отдать 202 быстро и без него — это и проверяется.
+#   db           — MySQL 8.0 в режиме, который требует Битрикс.
+#   mock-openai  — OpenAI-совместимое API без денег: распознавание и чат.
+#
+# Внутри сети портал зовёт себя по имени «portal»: этот адрес и есть «внешний
+# адрес портала» (DEF_publicurl и ai::public_url) — по нему ядро шлёт запрос
+# движку, а движок — колбэк. С хоста портал открывается на localhost:8080.
+
+name: shef-toolsai-stand
+
+services:
+  portal:
+    build: ./php
+    hostname: portal
+    ports:
+      - "${PORTAL_PORT:-8080}:80"
+    volumes:
+      - ./www:/var/www/html
+      - ./sh_log:/var/www/sh_log
+      - ..:/opt/shef.toolsai:ro
+      - ./stand:/opt/stand:ro
+    environment:
+      TZ: Europe/Minsk
+    depends_on:
+      - db
+    networks:
+      default:
+        aliases:
+          - portal
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: bitrix
+      MYSQL_USER: bitrix
+      MYSQL_PASSWORD: bitrix
+      TZ: Europe/Minsk
+    command:
+      - --sql-mode=
+      - --innodb-strict-mode=OFF
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --transaction-isolation=READ-COMMITTED
+      - --max-allowed-packet=64M
+    volumes:
+      - db:/var/lib/mysql
+
+  mock-openai:
+    image: php:8.2-cli
+    command: php -S 0.0.0.0:8000 /app/router.php
+    environment:
+      # Задан — mock требует заголовок Authorization: Bearer <ключ>.
+      MOCK_API_KEY: ${MOCK_API_KEY:-}
+    volumes:
+      - ./mock-openai:/app:ro
+    ports:
+      - "${MOCK_PORT:-8000}:8000"
+
+volumes:
+  db:

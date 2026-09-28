@@ -1,0 +1,38 @@
+# Навыки линейки shef.*
+#
+# Источник: https://github.com/bx-shef/options, каталог .claude/skills/
+# Здесь — копия. Правят навыки ТОЛЬКО в источнике, сюда их раскладывает
+# sync.sh --to. Правка копии на месте будет затёрта следующей раскладкой,
+# а до неё — поймана проверкой.
+#
+#   .claude/skills/sync.sh --check            целостность копии
+#   .claude/skills/sync.sh --check <источник> сверка с источником
+#
+# Пересобрать в источнике: .claude/skills/sync.sh --manifest
+#
+35b5881c25d26fc2d0587c17d9ae9c7e138a1a2c583153c01987eaff8b825dc4  README.md
+d9a5ed42fdab73c1ccb490e4dc28074000d53b9228047492c0f599dc1c7904b6  shef-feedback/SKILL.md
+6654c846d9b8c3622607ded5d12bd997ffba526585494a0eb7884a5e3b1ed22a  shef-feedback/evals/selection.json
+cd10d24017120a7f8a6c965a41f50fcdbcba39e6fddafc547ce5165bd99e8056  shef-new-agent/SKILL.md
+b33b8acf16e53d727ec742753b77a5c3d884ae439fa3ad880d0fa94aac291d86  shef-new-agent/evals/selection.json
+c904391b57dfc6e36196857e42e80a5106aaf06efcb6ad39cacb133fe46a8266  shef-new-ajax-action/SKILL.md
+d4bb4814e9b051ee5f771a6e779485a5d68d41b9959db83436e3dec84fcd62ac  shef-new-ajax-action/evals/selection.json
+5dd19d5bd5d3cb0a4dd38b625896314e140e1105d04d7506c472470ebb82fb97  shef-new-component/SKILL.md
+297eae00e59e3c30f86309c0fba4078b3afacb6436a7714753ca89e81dba5531  shef-new-component/evals/selection.json
+80a78e0effba0cbcf12d22ff43c8355244953ea7f4571d75ea4aeea3094f604f  shef-new-module/SKILL.md
+5580b26381cfcb0243f2c0747867833871ea8c724af40290f84a357d50ba9893  shef-new-module/evals/selection.json
+0fe679b59039ee244e89b17c436a4b0a954ca009756eac15e03acbffca6f9afc  shef-new-option/SKILL.md
+e9248bcb8a2c3199ec6f1c9a18e36b14ee451c11f2efab1735312be053544841  shef-new-option/evals/selection.json
+92ddc553fe3cf6dc3c8a6412c1528dfb204d0f8dbe692ed9b06dc1b501cafd49  shef-options-blocks/SKILL.md
+d63fb18b029a2814c42a344abdd14be92f185518a523bdf7f2bffd5a3da2675a  shef-options-components/SKILL.md
+eb022968c69abed7108a796abf5da2f22c6abd0e48d604a78b431b5cc207e622  shef-options-installer/SKILL.md
+86ed3444629498752562ab6a4e5152d7addfd75d1de160de11415be54e19c5d8  shef-options-installer/evals/selection.json
+c79e90028c5d0eda00588e6c814436e385ac6958f070b32b4aeaedb75f1680e0  shef-options-settings/SKILL.md
+88e8fc4c3fa312968101cc292c28f021ca17694e65568947fde85f96bec9c1a9  shef-options-traits/SKILL.md
+b57ffa900e333b485a392e126516ace6ff0a1ebabe7cc16e4df5f8a7f72e01b1  shef-options-traits/evals/selection.json
+e0636af9afe972593349bd6cb0594e7efde629adce6b7e4bbf5b85db1a4d1a9f  shef-use-component/SKILL.md
+6d43df03f4818775c4ee9e11ec3cbad05a9d30c6775ca67e0e87bc6baa0acaee  shef-use-component/evals/selection.json
+9e6119dc41336ff8963a90dc8eebcec2d1e4a6d7465f7854a30ca755e493d52b  shef-use-logger/SKILL.md
+74094b8622e93253d3e349ef4a39ec75a4a6b7ce905ac04d04cc82862395bce5  shef-use-logger/evals/selection.json
+902e4e77159aec27fc12a317b4199ac9e8e9171c9b9c41467bfe2ce7317aec52  sync.sh
+# Разложено 2026-09-28 18:20:54 из a48489c
