@@ -41,7 +41,7 @@ $make = static function(FakeProvider $provider, ?FakeQuota $quota = null): array
 	$quota->ledger = $ledger;
 
 	return [
-		new Dispatcher(['audio' => $provider], $quota, $ledger, new Callback($transport), $logger),
+		new Dispatcher(['audio' => $provider], $quota, $ledger, new Callback($transport, static function(int $seconds): void {}), $logger),
 		$transport,
 		$ledger,
 		$logger,
@@ -133,9 +133,44 @@ Check::group('колбэк не дошёл');
 
 $provider = new FakeProvider(new Result('текст', 1, 7));
 [$dispatcher, $transport, $ledger, $logger] = $make($provider);
-$transport->responses = [new Response(0, '', 'Connection refused')];
+$transport->responses = array_fill(0, 1 + count(Callback::RETRY_DELAYS), new Response(0, '', 'Connection refused'));
 $dispatcher->dispatch($request);
+Check::same('колбэк повторён по числу попыток', count($transport->sent), 1 + count(Callback::RETRY_DELAYS));
 Check::same('расход всё равно записан', [$ledger->rows[1]['status'], $ledger->rows[1]['costMicro']], ['SUCCESS', 7]);
 Check::same('в логе — подсказка про public_url', str_contains($logger->records[0]['message'] ?? '', 'public_url'), true);
+
+Check::group('сбой вне провайдера — ядру ошибка, а не тишина');
+
+$brokenLedger = new class implements \Shef\ToolsAi\Quota\LedgerInterface
+{
+	public function start(string $engineCode, string $category, string $providerCode, ?string $jobHash, int $estimateMicro = 0): ?int
+	{
+		throw new RuntimeException('база недоступна');
+	}
+
+	public function finish(int $id, string $status, int $units = 0, int $costMicro = 0, ?string $error = null): void
+	{
+	}
+};
+$transport = new FakeTransport();
+$logger = new FakeLogger();
+$provider = new FakeProvider();
+(new Dispatcher(['audio' => $provider], new FakeQuota(), $brokenLedger, new Callback($transport, static function(int $seconds): void {}), $logger))->dispatch($request);
+Check::same('провайдер не вызван', $provider->calls, 0);
+Check::same('ядру ушла ошибка', $transport->sent[0]['url'] ?? null, $request->errorCallbackUrl);
+Check::same('код internal_error', json_decode($transport->sent[0]['body'] ?? '{}', true)['error_code'] ?? null, 'internal_error');
+Check::same('текст базы наружу не ушёл', str_contains($transport->sent[0]['body'] ?? '', 'база'), false);
+Check::same('сбой в логе', $logger->records[0]['level'] ?? null, 'error');
+
+$failingFinish = new class extends FakeLedger
+{
+	public function finish(int $id, string $status, int $units = 0, int $costMicro = 0, ?string $error = null): void
+	{
+		throw new RuntimeException('запись не удалась');
+	}
+};
+$transport = new FakeTransport();
+(new Dispatcher(['audio' => new FakeProvider(new Result('оплаченный текст', 1, 5))], new FakeQuota(), $failingFinish, new Callback($transport, static function(int $seconds): void {}), new FakeLogger()))->dispatch($request);
+Check::same('сбой записи расхода не съел оплаченный результат', $transport->sent[0]['body'] ?? null, '{"result":["оплаченный текст"]}');
 
 Check::finish();

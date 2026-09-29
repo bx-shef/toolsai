@@ -34,6 +34,7 @@ use Shef\ToolsAi\Provider\OpenAi\ChatProvider;
 use Shef\ToolsAi\Provider\OpenAi\Client;
 use Shef\ToolsAi\Provider\OpenAi\Llm;
 use Shef\ToolsAi\Provider\ProviderException;
+use Shef\ToolsAi\Security\CallbackGuard;
 
 $config = static fn(array $options): Config => new Config(static fn(string $module, string $name): mixed => $options[$name] ?? '');
 
@@ -61,6 +62,8 @@ $errorOf = static function(callable $call): ?ProviderException
 	return null;
 };
 
+$portal = new CallbackGuard(['crm.example.by']);
+
 Check::group('multipart');
 
 $body = Client::buildMultipart('B', ['model' => 'whisper-1'], 'file', 'a"b.mp3', 'audio/mpeg', 'DATA');
@@ -74,7 +77,7 @@ $transport->responses = [
 	new Response(200, 'ID3-mp3-bytes'),
 	new Response(200, (string)json_encode(['text' => ' Менеджер: Добрый день. ', 'duration' => 125.4])),
 ];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport);
+$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
 $result = $asr->run(Request::fromArray(makeCoreRequest()));
 
 Check::same('текст без краевых пробелов', $result->text, 'Менеджер: Добрый день.');
@@ -82,6 +85,7 @@ Check::same('единицы — секунды вверх', $result->units, 126)
 Check::same('стоимость: 125.4 с × 0.6 за минуту', $result->costMicro, 1_254_000);
 Check::same('запись скачивается GET', $transport->sent[0]['method'], 'GET');
 Check::same('с лимитом 25 МБ', $transport->sent[0]['maxBytes'], 25 * 1024 * 1024);
+Check::same('запись с портала — приватные адреса разрешены', $transport->sent[0]['allowPrivate'], true);
 Check::same('скачивание — без ключа провайдера', $transport->sent[0]['headers'], []);
 Check::same('адрес API без двойного слэша', $transport->sent[1]['url'], 'http://mock:8000/v1/audio/transcriptions');
 Check::same('ключ — заголовком', $transport->sent[1]['headers']['Authorization'] ?? null, 'Bearer sk-secret-key');
@@ -93,7 +97,7 @@ Check::same('оценка до запроса — час записи', $asr->es
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(403, 'Forbidden')];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport);
+$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
 $error = $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())));
 Check::same('запись не скачалась — file_download', $error?->errorCode, 'file_download');
 Check::same('подсказка про public_url', str_contains((string)$error?->getMessage(), 'public_url'), true);
@@ -101,7 +105,7 @@ Check::same('адреса записи в ошибке нет', str_contains((st
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(200, 'x'), new Response(200, '{"text":""}')];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport);
+$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
 Check::same('пустой текст — ошибка, не успех', $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())))?->errorCode, 'empty_result');
 
 Check::same(
@@ -109,6 +113,49 @@ Check::same(
 	$errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest(['prompt' => []]))))?->errorCode,
 	'no_file'
 );
+
+Check::group('скачивание записи — под SSRF-защитой');
+
+$asrWith = static function(array $responses) use ($config, $options, $portal): array
+{
+	$transport = new FakeTransport();
+	$transport->responses = $responses;
+
+	return [new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal), $transport];
+};
+$ok = [new Response(200, 'ID3'), new Response(200, '{"text":"ok","duration":1}')];
+
+[$asr, $transport] = $asrWith($ok);
+$asr->run(Request::fromArray(makeCoreRequest(['prompt' => ['file' => 'https://storage.example.com/rec.mp3', 'fileExtension' => 'mp3']])));
+Check::same('чужой хост (облако) — приватные адреса запрещены', $transport->sent[0]['allowPrivate'], false);
+
+[$asr, $transport] = $asrWith([new Response(302, '', '', 'https://storage.example.com/signed/rec.mp3'), ...$ok]);
+$asr->run(Request::fromArray(makeCoreRequest()));
+Check::same('редирект с портала в облако пройден', $transport->sent[1]['url'], 'https://storage.example.com/signed/rec.mp3');
+Check::same('и проверен заново: облаку приватные адреса не положены', [$transport->sent[0]['allowPrivate'], $transport->sent[1]['allowPrivate']], [true, false]);
+
+[$asr, $transport] = $asrWith([new Response(302, '', '', 'http://10.0.0.5/secret'), new Response(0, '', 'private IP blocked')]);
+$error = $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())));
+Check::same('редирект во внутреннюю сеть — без права на приватные адреса', $transport->sent[1]['allowPrivate'] ?? null, false);
+Check::same('и заканчивается ошибкой', $error?->errorCode, 'file_download');
+
+[$asr, $transport] = $asrWith([new Response(302, '', '', '/bitrix/tools/crm_show_file.php?fileId=2'), ...$ok]);
+$asr->run(Request::fromArray(makeCoreRequest()));
+Check::same('относительный редирект — к хосту исходного адреса', $transport->sent[1]['url'], 'https://crm.example.by/bitrix/tools/crm_show_file.php?fileId=2');
+
+[$asr, $transport] = $asrWith(array_fill(0, 5, new Response(302, '', '', 'https://crm.example.by/loop')));
+Check::same('бесконечный редирект — ошибка, а не цикл', $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())))?->errorCode, 'file_download');
+Check::same('попыток не больше 1 + 3 редиректа', count($transport->sent), 4);
+
+[$asr, $transport] = $asrWith([]);
+Check::same(
+	'схема не http(s) — до сети не доходит',
+	[$errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest(['prompt' => ['file' => 'file:///etc/passwd']]))))?->errorCode, count($transport->sent)],
+	['file_download', 0]
+);
+
+[$asr, $transport] = $asrWith([new Response(200, 'обрезок', 'body length limit exceeded')]);
+Check::same('ошибка при статусе 200 (обрезанное тело) — не запись', $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())))?->errorCode, 'file_download');
 
 Check::group('ошибки провайдера');
 

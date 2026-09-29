@@ -47,11 +47,19 @@ if(is_string($deals) && $deals !== '')
 
 if($only === null)
 {
-	$candidates = DealHealthAgent::getCandidates();
-	printf("Кандидатов: %d\n", count($candidates));
+	printf("Кандидатов: %d\n", count(DealHealthAgent::getCandidates()));
 }
 
-foreach(DealHealthAgent::process($only) as $dealId => $row)
+// Под той же блокировкой и от того же служебного пользователя, что агент:
+// ручной прогон рядом с агентом платил бы за те же сделки дважды.
+$report = DealHealthAgent::runLocked(static fn(): array => DealHealthAgent::process($only));
+if($report === null)
+{
+	fwrite(STDERR, "Анализ уже идёт в другом процессе (агент или второй запуск)\n");
+	exit(1);
+}
+
+foreach($report as $dealId => $row)
 {
 	printf(
 		"  сделка %-8d %s\n",

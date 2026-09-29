@@ -12,7 +12,6 @@
  * потом идёт поход к провайдеру.
  */
 
-use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Shef\ToolsAi\Container;
 
@@ -22,6 +21,9 @@ const NO_AGENT_CHECK = true;
 const NOT_CHECK_PERMISSIONS = true;
 const DisableEventsCheck = true;
 const STOP_STATISTICS = true;
+// Запрос шлёт ядро, пользователя у него нет: сессия не нужна, а без этой
+// константы каждый POST создавал бы новую.
+const BX_SECURITY_SESSION_VIRTUAL = true;
 
 require_once $_SERVER['DOCUMENT_ROOT'].'/bitrix/modules/main/include/prolog_before.php';
 
@@ -89,5 +91,3 @@ catch(\Throwable $throwable)
 {
 	Container::getLogger('endpoint')?->error($throwable);
 }
-
-Application::getInstance()->terminate();

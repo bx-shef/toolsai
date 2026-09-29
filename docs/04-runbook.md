@@ -93,6 +93,12 @@ curl -i https://crm.example.by/bitrix/tools/shef_toolsai_completions.php
 # HTTP/1.1 200 и {"status":"ok"}
 ```
 
+Токен эндпоинта едет в адресе и попадает в access-лог веб-сервера. Не
+логируйте query-строку для `/bitrix/tools/shef_toolsai_completions.php`
+(в nginx — отдельный `location` с `access_log off` или свой формат лога без
+`$args`). Утёк — «Сменить токен эндпоинта» на странице расхода или
+`ROTATE_TOKEN=1 php -f cli/setup.php`.
+
 **Проверка:** все строки отчёта — OK, `engine audio` и `engine text` —
 `registered` (повторно — `unchanged`);
 

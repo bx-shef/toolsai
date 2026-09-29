@@ -12,6 +12,7 @@ use Shef\Options\TraitList\Security\FixUser;
 use Shef\ToolsAi\Container;
 use Shef\ToolsAi\Deal\Model\DealCheckTable;
 use Shef\ToolsAi\Main\Constants;
+use Shef\ToolsAi\Provider\ProviderException;
 use Shef\ToolsAi\Quota\Ledger;
 use Shef\ToolsAi\Quota\Status;
 
@@ -53,50 +54,80 @@ final class DealHealthAgent
 		return \Shef\Options\Main\Constants::getSystemUserId();
 	}
 
+	/** Ошибок провайдера подряд, после которых прогон останавливается. */
+	public const PROVIDER_ERRORS_MAX = 3;
+
+	/**
+	 * Коды ProviderException, при которых виноват провайдер, а не сделка.
+	 * Остальные (не JSON, 4xx на запрос) повторялись бы на той же сделке.
+	 */
+	public const PROVIDER_DOWN_CODES = ['provider_unavailable', 'provider_rate_limit', 'provider_auth'];
+
 	/** Точка входа агента. Возвращает свой вызов для следующего запуска. */
 	public static function run(): string
 	{
 		$self = '\\'.static::class.'::run();';
 
-		$config = Container::getConfig();
-		if(!$config->isDealHealthEnabled() || !Loader::includeModule('crm'))
+		if(!Container::getConfig()->isDealHealthEnabled() || !Loader::includeModule('crm'))
 		{
 			return $self;
 		}
 
-		$lock = new Pid(Constants::LOCK_GROUP_DEAL_HEALTH);
-		if(!$lock->add())
-		{
-			return $self;
-		}
-
-		static::initUser();
 		try
 		{
-			// После add() в каталоге группы только живые блокировки: больше
-			// одной — прогон уже идёт в другом процессе.
-			if(count(glob(Pid::getBasePath(Constants::LOCK_GROUP_DEAL_HEALTH).'/*.lock') ?: []) > 1)
-			{
-				return $self;
-			}
-
-			static::process();
+			static::runLocked(static fn(): array => static::process());
 		}
 		catch(\Throwable $throwable)
 		{
 			Container::getLogger(static::class)?->error($throwable);
-		}
-		finally
-		{
-			static::closeUser();
-			$lock->remove();
 		}
 
 		return $self;
 	}
 
 	/**
-	 * Один прогон. Отдельно от run() — чтобы звать руками (cli/deal-health.php).
+	 * Выполнить под блокировкой группы и от служебного пользователя. Этим
+	 * пользуются и агент, и cli/deal-health.php: ручной прогон рядом с
+	 * агентом платил бы за те же сделки дважды.
+	 *
+	 * @param callable(): array $work
+	 * @return array|null null — прогон уже идёт в другом процессе
+	 */
+	public static function runLocked(callable $work): ?array
+	{
+		$lock = new Pid(Constants::LOCK_GROUP_DEAL_HEALTH);
+		if(!$lock->add())
+		{
+			return null;
+		}
+
+		try
+		{
+			// После add() в каталоге группы только живые блокировки: больше
+			// одной — прогон уже идёт в другом процессе.
+			if(count(glob(Pid::getBasePath(Constants::LOCK_GROUP_DEAL_HEALTH).'/*.lock') ?: []) > 1)
+			{
+				return null;
+			}
+
+			static::initUser();
+			try
+			{
+				return $work();
+			}
+			finally
+			{
+				static::closeUser();
+			}
+		}
+		finally
+		{
+			$lock->remove();
+		}
+	}
+
+	/**
+	 * Один прогон. Звать через runLocked().
 	 *
 	 * @param int[]|null $onlyDeals только эти сделки, без выборки кандидатов
 	 * @return array<int, array{risk: int, needSenior: bool, skipped: bool, escalated: string[], error: string}>
@@ -112,11 +143,20 @@ final class DealHealthAgent
 
 		$report = [];
 		$analyzed = 0;
+		$providerErrors = 0;
 
 		foreach($onlyDeals ?? static::getCandidates() as $dealId)
 		{
 			if($analyzed >= $config->getMaxPerRun())
 			{
+				break;
+			}
+
+			// Провайдер лежит — дальше каждая сделка ждёт таймаут и ничего не
+			// даёт. Остановиться и оставить сделки непроверенными.
+			if($providerErrors >= static::PROVIDER_ERRORS_MAX)
+			{
+				$logger?->warning('Анализ сделок остановлен: провайдер не отвечает '.$providerErrors.' раза подряд');
 				break;
 			}
 
@@ -133,33 +173,77 @@ final class DealHealthAgent
 			{
 				$analysis = $analyzer->analyze($dealId, $config->getIdleDays());
 			}
+			catch(ProviderException $exception)
+			{
+				$analyzed++;
+				$logger?->error($exception, ['itemId' => $dealId]);
+				$row['error'] = $exception->getMessage();
+				$report[$dealId] = $row;
+
+				// Провайдер лежит (нет связи, лимит частоты, ключ) — это не
+				// свойство сделки: CHECKED_AT не пишем, в следующий прогон
+				// сделка снова кандидат.
+				if(in_array($exception->errorCode, static::PROVIDER_DOWN_CODES, true))
+				{
+					$providerErrors++;
+					continue;
+				}
+
+				// Сделка, на которой модель падает сама (не JSON, слишком
+				// длинный контекст), падала бы так каждый прогон — и каждый
+				// раз за деньги. Отметить проверенной с ошибкой.
+				static::saveCheck($dealId, ['CHECKED_AT' => new DateTime(), 'SKIPPED' => 'Y', 'WHY' => mb_substr('Ошибка модели: '.$row['error'], 0, 500)], $logger);
+				continue;
+			}
 			catch(\Throwable $throwable)
 			{
+				// Сделки нет или CRM не отдала данные — отметить, иначе она
+				// будет первой кандидаткой каждый прогон.
 				$logger?->error($throwable, ['itemId' => $dealId]);
 				$row['error'] = $throwable->getMessage();
 				$report[$dealId] = $row;
-				DealCheckTable::save($dealId, ['CHECKED_AT' => new DateTime(), 'SKIPPED' => 'Y', 'WHY' => mb_substr('Ошибка: '.$row['error'], 0, 500)]);
+				static::saveCheck($dealId, ['CHECKED_AT' => new DateTime(), 'SKIPPED' => 'Y', 'WHY' => mb_substr('Ошибка: '.$row['error'], 0, 500)], $logger);
 				continue;
 			}
 
+			$providerErrors = 0;
 			$verdict = $analysis->verdict;
 
 			if($analysis->llm !== null)
 			{
 				$analyzed++;
-				$id = $ledger->start(Constants::getEngineCode(static::CATEGORY), static::CATEGORY, $analyzer->getLlmCode(), null);
-				if($id !== null)
+				try
 				{
-					$ledger->finish($id, Status::SUCCESS, $analysis->llm->getTokens(), $analysis->llm->costMicro);
+					$id = $ledger->start(Constants::getEngineCode(static::CATEGORY), static::CATEGORY, $analyzer->getLlmCode(), null);
+					if($id !== null)
+					{
+						$ledger->finish($id, Status::SUCCESS, $analysis->llm->getTokens(), $analysis->llm->costMicro);
+					}
+				}
+				catch(\Throwable $throwable)
+				{
+					$logger?->error($throwable, ['itemId' => $dealId, 'costMicro' => $analysis->llm->costMicro]);
 				}
 			}
 
-			$check = DealCheckTable::getByDeal($dealId);
-			$lastEscalated = $check['ESCALATED_AT'] ?? null;
-			$recentlyEscalated = $lastEscalated instanceof DateTime
-				&& $lastEscalated->getTimestamp() > time() - $config->getReanalyzeDays() * 86400;
+			// Эскалация пишет в CRM клиента — её сбой не должен ни обрывать
+			// прогон, ни оставлять сделку без отметки о проверке (иначе за
+			// неё платили бы каждый прогон).
+			$escalated = [];
+			try
+			{
+				$check = DealCheckTable::getByDeal($dealId);
+				$lastEscalated = $check['ESCALATED_AT'] ?? null;
+				$recentlyEscalated = $lastEscalated instanceof DateTime
+					&& $lastEscalated->getTimestamp() > time() - $config->getReanalyzeDays() * 86400;
 
-			$escalated = $recentlyEscalated ? [] : $escalation->escalate($dealId, $verdict);
+				$escalated = $recentlyEscalated ? [] : $escalation->escalate($dealId, $verdict);
+			}
+			catch(\Throwable $throwable)
+			{
+				$logger?->error($throwable, ['itemId' => $dealId]);
+				$row['error'] = 'Эскалация не удалась: '.$throwable->getMessage();
+			}
 
 			$fields = [
 				'CHECKED_AT' => new DateTime(),
@@ -173,18 +257,30 @@ final class DealHealthAgent
 			{
 				$fields['ESCALATED_AT'] = new DateTime();
 			}
-			DealCheckTable::save($dealId, $fields);
+			static::saveCheck($dealId, $fields, $logger);
 
 			$report[$dealId] = [
 				'risk' => $verdict->risk,
 				'needSenior' => $verdict->needSenior,
 				'skipped' => $verdict->skipped,
 				'escalated' => $escalated,
-				'error' => '',
+				'error' => $row['error'],
 			];
 		}
 
 		return $report;
+	}
+
+	private static function saveCheck(int $dealId, array $fields, ?\Psr\Log\LoggerInterface $logger): void
+	{
+		try
+		{
+			DealCheckTable::save($dealId, $fields);
+		}
+		catch(\Throwable $throwable)
+		{
+			$logger?->error($throwable, ['itemId' => $dealId]);
+		}
 	}
 
 	/**

@@ -46,6 +46,10 @@ final class Dispatcher
 	{
 	}
 
+	/**
+	 * Обработать задание. Никогда не бросает: задание без колбэка висит у
+	 * ядра до истечения ttl, и пользователь видит «думает» вместо ошибки.
+	 */
 	public function dispatch(Request $request): void
 	{
 		if(!$request->isValid())
@@ -56,14 +60,24 @@ final class Dispatcher
 			return;
 		}
 
+		try
+		{
+			$this->process($request);
+		}
+		catch(\Throwable $throwable)
+		{
+			// Сбой вне провайдера: база, журнал, квота. Ядру — ошибка, а не тишина.
+			$this->safeLog($throwable, $request);
+			$this->sendError($request, 'Внутренняя ошибка движка shef.toolsai', 'internal_error');
+		}
+	}
+
+	private function process(Request $request): void
+	{
 		$provider = $this->providers[$request->category] ?? null;
 		if($provider === null)
 		{
-			$this->callback->error(
-				$request->errorCallbackUrl,
-				'Нет провайдера для категории '.$request->category,
-				'no_provider'
-			);
+			$this->sendError($request, 'Нет провайдера для категории '.$request->category, 'no_provider');
 
 			return;
 		}
@@ -80,8 +94,10 @@ final class Dispatcher
 
 		if($id === null)
 		{
-			// Повторная доставка того же задания — квоту второй раз не тратим
-			// и колбэк второй раз не шлём: первый прогон его уже отправил.
+			// Повторная доставка задания, которое обрабатывается или уже
+			// обработано, — квоту второй раз не тратим и колбэк второй раз не
+			// шлём. Запись, брошенную умершим процессом, журнал отдаёт заново
+			// (LedgerInterface::start()).
 			$this->logger?->info('Задание уже обработано, повтор пропущен', ['hash' => $request->getJobHash()]);
 
 			return;
@@ -91,8 +107,8 @@ final class Dispatcher
 		// вопрос не «хватит ли на оценку», а «не вышли ли за квоту с ней».
 		if($this->quota->getMonthly()->isExceeded())
 		{
-			$this->ledger->finish($id, Status::QUOTA, error: 'Месячная квота исчерпана');
-			$this->callback->error($request->errorCallbackUrl, 'Месячная квота на ИИ исчерпана', 'quota_exceeded');
+			$this->safeFinish($id, Status::QUOTA, error: 'Месячная квота исчерпана');
+			$this->sendError($request, 'Месячная квота на ИИ исчерпана', 'quota_exceeded');
 
 			return;
 		}
@@ -105,14 +121,16 @@ final class Dispatcher
 		{
 			$code = $throwable instanceof ProviderException ? $throwable->errorCode : 'provider_error';
 
-			$this->ledger->finish($id, Status::ERROR, error: $throwable->getMessage());
-			$this->logger?->error($throwable, ['category' => $request->category, 'hash' => $request->getJobHash()]);
-			$this->callback->error($request->errorCallbackUrl, $throwable->getMessage(), $code);
+			$this->safeFinish($id, Status::ERROR, error: $throwable->getMessage());
+			$this->safeLog($throwable, $request);
+			$this->sendError($request, $throwable->getMessage(), $code);
 
 			return;
 		}
 
-		$this->ledger->finish($id, Status::SUCCESS, $result->units, $result->costMicro);
+		// Деньги у провайдера уже потрачены: сбой записи не должен съесть
+		// колбэк с оплаченным результатом.
+		$this->safeFinish($id, Status::SUCCESS, $result->units, $result->costMicro);
 
 		if(!$this->callback->success($request->callbackUrl, $request->errorCallbackUrl, $result->text))
 		{
@@ -120,6 +138,40 @@ final class Dispatcher
 				'category' => $request->category,
 				'hash' => $request->getJobHash(),
 			]);
+		}
+	}
+
+	private function sendError(Request $request, string $message, string $code): void
+	{
+		if(!$this->callback->error($request->errorCallbackUrl, $message, $code))
+		{
+			$this->logger?->error('Колбэк ошибки не принят порталом', [
+				'code' => $code,
+				'hash' => $request->getJobHash(),
+			]);
+		}
+	}
+
+	private function safeFinish(int $id, string $status, int $units = 0, int $costMicro = 0, ?string $error = null): void
+	{
+		try
+		{
+			$this->ledger->finish($id, $status, $units, $costMicro, $error);
+		}
+		catch(\Throwable $throwable)
+		{
+			$this->logger?->error($throwable, ['ledgerId' => $id, 'status' => $status, 'costMicro' => $costMicro]);
+		}
+	}
+
+	private function safeLog(\Throwable $throwable, Request $request): void
+	{
+		try
+		{
+			$this->logger?->error($throwable, ['category' => $request->category, 'hash' => $request->getJobHash()]);
+		}
+		catch(\Throwable)
+		{
 		}
 	}
 }

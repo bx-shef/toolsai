@@ -33,6 +33,21 @@
 * [shef.options](https://github.com/bx-shef/options) 3.0.0+ и
   [shef.problems](https://github.com/bx-shef/problems) 2.0.0+.
 
+## Ограничения 1.0
+
+* **На живой коробке ещё не прогонялся** — приёмка по
+  [docs/agent-docker-test.md](https://github.com/bx-shef/toolsai/blob/main/docs/agent-docker-test.md)
+  до выпуска релиза.
+* Схема таблиц — MySQL, как у коробки; PostgreSQL не проверялся.
+* Токен эндпоинта — в адресе (ядро не шлёт своих заголовков), поэтому он
+  оседает в access-логах веб-сервера: не логируйте query-строку для
+  `/bitrix/tools/shef_toolsai_completions.php` и при утечке меняйте токен
+  кнопкой «Сменить токен эндпоинта».
+* Оценка расхода на распознавание до скачивания — час записи: при почти
+  исчерпанной квоте отказ получит и короткий звонок.
+* Модуль опирается на недокументированное поведение ядра: после каждого
+  обновления Битрикса — «Проверить и включить» и `cli/core-api-guard.php`.
+
 ## Установка
 
 Архивом: распаковать `shef.toolsai.zip` со [страницы релизов](https://github.com/bx-shef/toolsai/releases)

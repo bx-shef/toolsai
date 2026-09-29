@@ -81,6 +81,14 @@ final class Endpoint
 			return new EndpointResponse(400, ['error' => 'bad_request']);
 		}
 
+		// Хэш задания ядро кладёт в колбэк всегда. Без него нет ни защиты от
+		// повторов, ни идемпотентности расхода: каждый такой POST — новый
+		// платный запрос.
+		if($request->getJobHash() === null)
+		{
+			return new EndpointResponse(400, ['error' => 'no_hash']);
+		}
+
 		if(!in_array($request->category, Constants::getCategoryList(), true))
 		{
 			return new EndpointResponse(400, ['error' => 'unsupported_category']);

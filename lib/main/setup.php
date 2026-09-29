@@ -83,6 +83,47 @@ final class Setup
 	}
 
 	/**
+	 * Сменить токен эндпоинта и перерегистрировать движки с новым адресом.
+	 *
+	 * Токен едет в адресе, а адрес оседает в access-логах веб-сервера и в
+	 * b_ai_engine. Утёк — старый адрес перестаёт работать сразу после
+	 * перерегистрации: задания, отправленные ядром до неё, получат 403.
+	 *
+	 * @return array<string, array{ok: bool, message: string}>
+	 */
+	public function rotateToken(): array
+	{
+		$old = $this->config->getToken();
+		Option::set(Constants::MODULE_ID, Config::OPTION_TOKEN, Token::generate());
+
+		$engines = $this->ensureEngines();
+		$failed = array_filter($engines, static fn(array $row): bool => !$row['ok']);
+
+		// Движки не перерегистрировались — они остались со старым адресом, и
+		// с новым токеном эндпоинт отвечал бы им 403 на каждый запрос.
+		// Вернуть старый токен (и старый адрес тем движкам, что успели
+		// обновиться): рабочий старый токен лучше мёртвого нового.
+		if($failed !== [] && $old !== '')
+		{
+			Option::set(Constants::MODULE_ID, Config::OPTION_TOKEN, $old);
+			$this->ensureEngines();
+
+			$report = ['token' => ['ok' => false, 'message' => 'не сменён: движки не перерегистрировались, оставлен прежний']];
+		}
+		else
+		{
+			$report = ['token' => ['ok' => $this->config->getToken() !== '', 'message' => 'новый токен']];
+		}
+
+		foreach($engines as $category => $row)
+		{
+			$report['engine '.$category] = $row;
+		}
+
+		return $report;
+	}
+
+	/**
 	 * Обход проверки пакетов BaaS.
 	 *
 	 * Без этого AutoLauncher::isEnabled() (autolauncher.php:38) всегда false,

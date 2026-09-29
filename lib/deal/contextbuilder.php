@@ -164,10 +164,12 @@ final class ContextBuilder implements FactsSourceInterface
 			'order' => ['CREATED_TIME' => 'ASC', 'ID' => 'ASC'],
 		])->fetchAll();
 
-		return static::countBackward(array_map(
-			static fn(array $row): int => $sort[$row['STAGE_ID']] ?? 0,
-			$history
-		));
+		// Стадия не из текущего направления (сделку переносили) сравнивать
+		// не с чем — она пропускается, а не считается сортировкой 0.
+		return static::countBackward(array_values(array_filter(
+			array_map(static fn(array $row): ?int => $sort[$row['STAGE_ID']] ?? null, $history),
+			static fn(?int $value): bool => $value !== null
+		)));
 	}
 
 	/**

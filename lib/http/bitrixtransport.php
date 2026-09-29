@@ -7,67 +7,64 @@ use Bitrix\Main\Web\HttpClient;
 /**
  * Транспорт на HttpClient ядра.
  *
- * setPrivateIp(true): портал и сервис распознавания часто живут в одной
- * приватной сети, а колбэк уходит на сам портал. Ядро по умолчанию
- * приватные адреса запрещает (защита от SSRF), и колбэк на 10.x молча не
- * ушёл бы. Куда именно разрешено слать колбэк, решает Security\CallbackGuard.
+ * Редиректы выключены: см. TransportInterface. Приватные адреса — только там,
+ * где адрес проверен или задан администратором: POST (колбэк на портал,
+ * провайдер в своей сети) и GET с $allowPrivate. Ядро по умолчанию приватные
+ * адреса запрещает (защита от SSRF), и это умолчание остаётся для всего
+ * остального.
  */
 final class BitrixTransport implements TransportInterface
 {
 	public function post(string $url, string $body, array $headers, int $timeout): Response
 	{
-		$http = $this->create($timeout);
-		foreach($headers as $name => $value)
-		{
-			$http->setHeader($name, $value);
-		}
-
+		$http = $this->create($timeout, true, $headers);
 		$result = $http->post($url, $body);
 
-		return new Response(
-			(int)$http->getStatus(),
-			is_string($result) ? $result : '',
-			$this->getError($http),
-		);
+		return $this->toResponse($http, $result);
 	}
 
-	public function get(string $url, array $headers, int $timeout, int $maxBytes): Response
+	public function get(string $url, array $headers, int $timeout, int $maxBytes, bool $allowPrivate = false): Response
 	{
-		$http = $this->create($timeout);
-		foreach($headers as $name => $value)
-		{
-			$http->setHeader($name, $value);
-		}
+		$http = $this->create($timeout, $allowPrivate, $headers);
 
 		// Сверх лимита HttpClient обрывает чтение и отдаёт ошибку.
 		$http->setBodyLengthMax($maxBytes);
 
 		$result = $http->get($url);
 
-		return new Response(
-			(int)$http->getStatus(),
-			is_string($result) ? $result : '',
-			$this->getError($http),
-		);
+		return $this->toResponse($http, $result);
 	}
 
-	private function create(int $timeout): HttpClient
+	/**
+	 * @param array<string, string> $headers
+	 */
+	private function create(int $timeout, bool $allowPrivate, array $headers): HttpClient
 	{
 		$http = new HttpClient([
 			'socketTimeout' => min(30, $timeout),
 			'streamTimeout' => $timeout,
-			'redirect' => true,
-			'redirectMax' => 3,
+			'redirect' => false,
 		]);
-		$http->setPrivateIp(true);
+		$http->setPrivateIp($allowPrivate);
+
+		foreach($headers as $name => $value)
+		{
+			$http->setHeader($name, $value);
+		}
 
 		return $http;
 	}
 
-	private function getError(HttpClient $http): string
+	private function toResponse(HttpClient $http, mixed $result): Response
 	{
 		$errors = $http->getError();
+		$location = $http->getHeaders()->get('Location');
 
-		return is_array($errors) ? implode('; ', $errors) : '';
+		return new Response(
+			(int)$http->getStatus(),
+			is_string($result) ? $result : '',
+			is_array($errors) ? implode('; ', $errors) : '',
+			is_string($location) ? $location : '',
+		);
 	}
 }

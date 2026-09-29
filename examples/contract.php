@@ -59,7 +59,7 @@ $transport = new class implements TransportInterface
 		return new Response(200, '{"result":true}');
 	}
 
-	public function get(string $url, array $headers, int $timeout, int $maxBytes): Response
+	public function get(string $url, array $headers, int $timeout, int $maxBytes, bool $allowPrivate = false): Response
 	{
 		return new Response(200, '');
 	}
@@ -98,7 +98,7 @@ $quota = new class implements QuotaInterface
 
 $token = Token::generate();
 $endpoint = new Endpoint($token, new CallbackGuard(['crm.example.by']));
-$dispatcher = new Dispatcher(['audio' => new EchoProvider()], $quota, $ledger, new Callback($transport));
+$dispatcher = new Dispatcher(['audio' => new EchoProvider()], $quota, $ledger, new Callback($transport, static function(int $seconds): void {}));
 
 $job = [
 	'category' => 'audio',

@@ -84,7 +84,7 @@ final class Container
 		$client = new OpenAi\Client($config, self::getTransport());
 
 		return $category === Constants::CATEGORY_AUDIO
-			? new OpenAi\AsrProvider($config, $client, self::getTransport())
+			? new OpenAi\AsrProvider($config, $client, self::getTransport(), new CallbackGuard($config->getAllowedCallbackHosts()))
 			: new OpenAi\ChatProvider($config, new OpenAi\Llm($config, $client));
 	}
 

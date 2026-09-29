@@ -17,7 +17,7 @@ use Shef\ToolsAi\Quota\QuotaInterface;
 /** Запоминает, что ушло, и отдаёт заранее заданные ответы по очереди. */
 final class FakeTransport implements TransportInterface
 {
-	/** @var array<int, array{method: string, url: string, body: string, headers: array, timeout: int, maxBytes: int}> */
+	/** @var array<int, array{method: string, url: string, body: string, headers: array, timeout: int, maxBytes: int, allowPrivate: bool}> */
 	public array $sent = [];
 
 	/** @var Response[] */
@@ -25,20 +25,20 @@ final class FakeTransport implements TransportInterface
 
 	public function post(string $url, string $body, array $headers, int $timeout): Response
 	{
-		$this->sent[] = ['method' => 'POST', 'url' => $url, 'body' => $body, 'headers' => $headers, 'timeout' => $timeout, 'maxBytes' => 0];
+		$this->sent[] = ['method' => 'POST', 'url' => $url, 'body' => $body, 'headers' => $headers, 'timeout' => $timeout, 'maxBytes' => 0, 'allowPrivate' => true];
 
 		return array_shift($this->responses) ?? new Response(200, '{}');
 	}
 
-	public function get(string $url, array $headers, int $timeout, int $maxBytes): Response
+	public function get(string $url, array $headers, int $timeout, int $maxBytes, bool $allowPrivate = false): Response
 	{
-		$this->sent[] = ['method' => 'GET', 'url' => $url, 'body' => '', 'headers' => $headers, 'timeout' => $timeout, 'maxBytes' => $maxBytes];
+		$this->sent[] = ['method' => 'GET', 'url' => $url, 'body' => '', 'headers' => $headers, 'timeout' => $timeout, 'maxBytes' => $maxBytes, 'allowPrivate' => $allowPrivate];
 
 		return array_shift($this->responses) ?? new Response(200, '');
 	}
 }
 
-final class FakeLedger implements LedgerInterface
+class FakeLedger implements LedgerInterface
 {
 	/** @var array<int, array> */
 	public array $rows = [];

@@ -5,6 +5,7 @@
  *
  *   php -f bitrix/modules/shef.toolsai/cli/setup.php
  *   PUBLIC_URL=https://crm.example.by php -f .../cli/setup.php   # заодно задать внешний адрес
+ *   ROTATE_TOKEN=1 php -f .../cli/setup.php                        # сменить токен эндпоинта
  *
  * Токен, заглушки эндпоинта и страницы расхода, обход BaaS, регистрация
  * движков audio и text, агент анализа сделок. Шаги идемпотентны: гонять
@@ -55,10 +56,11 @@ if(is_string($publicUrl) && $publicUrl !== '')
 	Option::set(Constants::MODULE_ID, 'DEF_publicurl', OptionParser::url($publicUrl));
 }
 
-$report = (new Setup(Container::getConfig()))->run(
-	(string)$_SERVER['DOCUMENT_ROOT'],
-	dirname(__DIR__)
-);
+$setup = new Setup(Container::getConfig());
+
+$report = getenv('ROTATE_TOKEN') === '1'
+	? $setup->rotateToken()
+	: $setup->run((string)$_SERVER['DOCUMENT_ROOT'], dirname(__DIR__));
 
 $failed = 0;
 foreach($report as $step => $row)
