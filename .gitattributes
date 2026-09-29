@@ -1,0 +1,18 @@
+# Что НЕ попадает в Composer-пакет (git archive соблюдает export-ignore).
+#
+# Список обязан совпадать со списком KEEP в build.sh, иначе на портал уедет
+# разное в зависимости от способа установки: zip из build.sh и пакет Composer
+# соберутся по разным правилам. Сверяется автоматически, см. build.sh,
+# check_gitattributes.
+
+/.claude/		export-ignore
+/.gitattributes		export-ignore
+/.github/		export-ignore
+/.gitignore		export-ignore
+/CLAUDE.md		export-ignore
+/CONTRIBUTING.md	export-ignore
+/docs/			export-ignore
+/examples/		export-ignore
+/build.sh		export-ignore
+/docker/		export-ignore
+/tests/			export-ignore

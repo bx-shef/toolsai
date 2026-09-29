@@ -1,0 +1,22 @@
+/.idea
+.DS_Store
+
+composer.phar
+composer.lock
+
+/.versions
+/bitrix-version-builder
+
+*.log
+
+# Отзывы о навыках: их пишет агент по shef-feedback, в репозиторий они не едут.
+# Без этой строки первый же git add -A роняет check_lists в build.sh.
+/.bitrixsh/
+install/**/*.min.min.*
+
+# собирается build.sh
+/shef.toolsai.zip
+
+# стенд docker/: коробка, логи — не в репозиторий
+/docker/www/
+/docker/sh_log/

@@ -1,0 +1,138 @@
+# Проверки репозитория. Всё, что здесь гоняется, гоняется через ./build.sh —
+# чтобы локальный прогон и прогон в CI не могли разойтись.
+#
+# В защите ветки требуется ровно ОДНА проверка — CI. Остальные задачи её
+# зависимости, поэтому новая задача не потребует правки ruleset.
+# Апрувов — ноль: в репозитории один человек, свой PR апрувить нельзя,
+# единица заперла бы репозиторий.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# Вытесняем устаревшие прогоны одной и той же ветки.
+#
+# ⚠ Побочный эффект вместе с always() у задачи ci: вытесненный прогон краснеет
+# на устаревшем коммите. Это шум, а не поломка — защита ветки смотрит на
+# проверки ГОЛОВНОГО коммита. Не «чинить».
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Нужен результат по каждой версии, а не по первой упавшей.
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v4
+
+      - name: Поставить PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring
+          coverage: none
+
+      - name: Проверки
+        run: ./build.sh --check
+
+  composer:
+    name: Composer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v4
+
+      - name: Поставить PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+          coverage: none
+          tools: composer
+
+      # Пакет ставят через Composer, и сломанный composer.json виден только
+      # у того, кто ставит. --strict: предупреждение тоже провал.
+      - name: composer validate
+        run: composer validate --strict --no-check-lock
+
+  skills:
+    name: Skills
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v4
+
+      # Навыки здесь — копия. Источник — bx-shef/options, раскладывает их
+      # sync.sh --to. Целостность копии проверяет и tests/skills_test.php, а
+      # эта задача ловит другое: источник ушёл вперёд, а копия отстала.
+      # Покраснела — разложите заново из shef.options, не правьте копию.
+      - name: Навыки не отстали от источника
+        run: .claude/skills/sync.sh --check https://raw.githubusercontent.com/bx-shef/options/main/.claude/skills/MANIFEST
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать репозиторий
+        uses: actions/checkout@v4
+
+      - name: Поставить PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Нижняя граница поддержки: собираем тем же, чем разрешаем ставить.
+          php-version: '8.2'
+          extensions: mbstring
+          coverage: none
+
+      - name: Собрать архив
+        run: ./build.sh
+
+      - name: Прочитать версию модуля
+        id: version
+        run: echo "value=$(./build.sh --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Приложить архив к прогону
+        uses: actions/upload-artifact@v4
+        with:
+          name: shef.toolsai-${{ steps.version.outputs.value }}
+          path: shef.toolsai.zip
+          # Пустой артефакт означал бы, что сборка молча ничего не собрала.
+          if-no-files-found: error
+
+  ci:
+    name: CI
+    needs: [checks, composer, skills, build]
+    runs-on: ubuntu-latest
+    # ⚠ Обязательно вместе с проверкой результатов ниже. Без always() задача
+    # была бы ПРОПУЩЕНА при падении зависимости, а пропущенную проверку защита
+    # ветки засчитывает как ПРОЙДЕННУЮ — красный CI уехал бы в main.
+    #
+    # Подмывает заменить на !cancelled() — не надо: отменённый прогон стал бы
+    # давать пропущенную проверку, и, отменив прогон вручную, можно было бы
+    # смержить непроверенное.
+    if: always()
+    steps:
+      - name: Сверить результаты зависимостей
+        run: |
+          if [ "${{ needs.checks.result }}" != 'success' ] \
+          || [ "${{ needs.composer.result }}" != 'success' ] \
+          || [ "${{ needs.skills.result }}" != 'success' ] \
+          || [ "${{ needs.build.result }}" != 'success' ]
+          then
+            echo '::error::Не прошла одна из зависимостей'
+            exit 1
+          fi

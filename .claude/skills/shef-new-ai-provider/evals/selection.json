@@ -1,0 +1,28 @@
+[
+ {
+  "input": "Подключи к Копилоту в нашей коробке распознавание звонков через Яндекс SpeechKit вместо Whisper",
+  "expected": "shef-new-ai-provider"
+ },
+ {
+  "input": "добавь в shef.toolsai провайдера GigaChat для резюме звонков",
+  "expected": "shef-new-ai-provider"
+ },
+ {
+  "input": "из своего модуля вызови LLM так, чтобы расход попал в квоту toolsai",
+  "expected": "shef-new-ai-provider"
+ },
+ {
+  "input": "сделай агент, который раз в сутки пересчитывает скидки по сделкам",
+  "expected": "shef-new-agent",
+  "notes": "сосед: фоновая задача без ИИ"
+ },
+ {
+  "input": "добавь в настройки модуля поле с ключом API",
+  "expected": "shef-new-option",
+  "notes": "сосед: только опция"
+ },
+ {
+  "input": "почини вёрстку шапки сайта на мобильных",
+  "expected": "<none>"
+ }
+]
