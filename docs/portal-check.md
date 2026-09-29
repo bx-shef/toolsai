@@ -48,7 +48,9 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
 ## B. Движки
 
 1. Задать внешний адрес → «Проверить и включить» → `engine audio`,
-   `engine text` — `registered`; повторно — `unchanged`.
+   `engine text` — `registered`; повторно — `unchanged`; `selected audio`,
+   `selected text` — наш движок (если там был чужой — выбрать наш в
+   `/settings/configs/?page=ai` и записать, что стояло).
 2. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
    — две строки, адрес с `?token=`.
 3. `cli/core-api-guard.php` — без FAIL, кроме ожидаемых на этом стенде (записать).

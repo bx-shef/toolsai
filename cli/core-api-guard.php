@@ -289,20 +289,62 @@ if ($body === null) {
     ok('Engine::loadThirdParty()', 'читает b_ai_engine без проверки на bitrix24');
 }
 
-// Движок реально виден?
-foreach (['audio', 'text'] as $category) {
-    $engines = \Bitrix\AI\Engine::getListAvailable($category);
+// Движок реально виден — С ТЕМ ЖЕ ФИЛЬТРОМ КАЧЕСТВА, что и в CRM.
+//
+// Для audio CRM строит список с Quality('transcribe') (crm/.../eventhandler.php:107-111),
+// а ThirdParty::hasQuality() (ai/lib/Engine/ThirdParty.php:297-310) для audio
+// возвращает true ТОЛЬКО если есть хоть один движок категории text.
+// Без text-движка наш audio-движок из списка выпадает, дефолт становится null,
+// и Engine::getByCode('') в abstractoperation.php:693 ничего не находит.
+$qualityByCategory = [
+    'audio' => new \Bitrix\AI\Quality([\Bitrix\AI\Quality::QUALITIES['transcribe']]),
+    'text' => null,
+];
+foreach ($qualityByCategory as $category => $quality) {
+    $engines = \Bitrix\AI\Engine::getListAvailable($category, $quality);
     $own = array_filter($engines, static fn($e) => str_starts_with($e->getCode(), 'sheftoolsai'));
 
     if ($own !== []) {
-        ok("движок категории $category", reset($own)->getCode());
+        ok("движок категории $category (с фильтром качества)", reset($own)->getCode());
     } elseif ($engines !== []) {
         warn(
             "движок категории $category",
             'наш не найден, но есть чужие: ' . implode(', ', array_map(static fn($e) => $e->getCode(), $engines))
         );
     } else {
-        fail("движок категории $category", 'НЕТ НИ ОДНОГО', 'операции упадут на abstractoperation.php:332');
+        fail(
+            "движок категории $category",
+            'НЕТ НИ ОДНОГО',
+            $category === 'audio'
+                ? 'audio-движок виден только при наличии text-движка (ThirdParty::hasQuality). Зарегистрируй оба'
+                : 'операции упадут на abstractoperation.php:332'
+        );
+    }
+}
+
+// Какой движок ВЫБРАН в настройках ИИ. CRM берёт движок строго по коду из
+// настройки (abstractoperation.php:684-697, Engine::getByCode без фолбэка):
+// если там сохранён код облачного движка, которого на коробке нет, — операция
+// не найдёт движок, даже если наш зарегистрирован.
+if (Loader::includeModule('crm')) {
+    $tuning = new \Bitrix\AI\Tuning\Manager();
+    $engineSettings = [
+        \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE => 'audio',
+        \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE => 'text',
+    ];
+    foreach ($engineSettings as $code => $category) {
+        $item = $tuning->getItem($code);
+        $value = $item ? (string)$item->getValue() : '';
+
+        if ($item === null) {
+            warn("настройка $code", 'не найдена', 'группа настроек Копилота не загрузилась — проверь isAiCallProcessingEnabled()');
+        } elseif ($value === '') {
+            fail("выбранный движок $category", 'ПУСТО', 'в /settings/configs/?page=ai выбери наш движок явно');
+        } elseif (str_starts_with($value, 'sheftoolsai')) {
+            ok("выбранный движок $category", $value);
+        } else {
+            warn("выбранный движок $category", "$value (не наш)", 'если этого движка нет на коробке — операция не найдёт движок');
+        }
     }
 }
 

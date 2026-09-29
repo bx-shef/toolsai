@@ -158,6 +158,9 @@ HTTP-статус, текст из таймлайна.
 | 10 | `TargetResolver` | цели — Deal и Lead | выбор сделки в тесте |
 | 11 | `\Bitrix\Crm\Timeline\CommentEntry::create()`, `\Bitrix\Crm\Activity\Entity\ToDo` | есть; сигнатуры как в `Deal\Escalation` | эскалация |
 | 12 | `\Bitrix\Crm\ActivityBindingTable`, `\Bitrix\Crm\History\Entity\DealStageHistoryTable` | есть, поля как в `Deal\ContextBuilder` | анализ сделок |
+| 13 | `ThirdParty::hasQuality()` | audio виден только при наличии text-движка | регистрация обоих вместе |
+| 14 | `\Bitrix\AI\Tuning\Manager::getItem()/save()`, `$item->setValue()`, `EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE` / `_TEXT_CODE` | есть; движок CRM берёт строго по коду из этой настройки | `Main\Setup::ensureEngineSelected()` |
+| 15 | одно задание Transcribe на дело (`callautostartstrategy.php:86-89`) | прежнее задание глушит автозапуск | каждый тест — новый звонок |
 
 Расхождение — в отчёт, с оценкой: ломает ли оно модуль, и как (молча или
 с ошибкой).
@@ -169,8 +172,12 @@ HTTP-статус, текст из таймлайна.
 1. Настрой стенд: `docker compose exec -u www-data portal php
    /opt/stand/configure.php` — внешний адрес `http://portal`, провайдер
    `echo`, `Проверить и включить`. Ожидается: все строки OK,
-   `engine audio` и `engine text` — `registered`. Повторный запуск —
-   `unchanged`.
+   `engine audio` и `engine text` — `registered`, `selected audio/text` —
+   «был пуст — выбран наш» или «выбран наш». Повторный запуск —
+   `unchanged`. `selected … — выбран другой движок`: выбери наш в
+   `/settings/configs/?page=ai` и запиши, какой код там стоял по умолчанию
+   на этой коробке (находка для отчёта: значит, «из коробки» модуль не
+   заработает).
 2. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
    LIKE 'sheftoolsai%';` — две строки, адрес с `?token=` (в отчёт — маской).
 3. Контракт руками, **изнутри контейнера** (`docker compose exec portal bash`):
@@ -212,7 +219,12 @@ HTTP-статус, текст из таймлайна.
 4. Вебхук: `docker compose exec -u www-data portal php /opt/stand/webhook.php`
    (если не вышло — создай руками, см. шапку скрипта).
 5. Звонок: `docker compose exec portal /opt/stand/test-call.sh
-   <адрес вебхука> lead`, потом то же с `deal`.
+   <адрес вебхука> lead`, потом то же с `deal`. **Каждая проверка — новый
+   звонок** (`test-call.sh` каждый раз заводит новый): на одно дело ядро
+   ставит задание распознавания один раз, и прежнее задание, даже упавшее,
+   глушит автозапуск (гейт 13). Упал — чини и звони заново, а не
+   перевешивай запись на тот же звонок. Ответственный (пользователь 1) должен
+   иметь право изменять дело звонка (гейт 12) — у администратора есть.
 6. Ожидается, для каждого звонка, в пределах минуты:
    - в `crm-ai.log` — попытка автозапуска и операция транскрибации;
    - в таймлайне лида/сделки — текст `[заглушка shef.toolsai] Расшифровка
@@ -255,7 +267,9 @@ HTTP-статус, текст из таймлайна.
 
 1. `QUOTA=0.000001` в `configure.php` (одна микро-единица; env `QUOTA`) →
    звонок → в журнале `QUOTA_EXCEEDED`, провайдер **не** вызван
-   (`/__stats` не вырос), ядру ушла ошибка `quota_exceeded`.
+   (`/__stats` не вырос), ядру ушла ошибка `quota_exceeded`. Этот звонок
+   автоматически уже не распознается (гейт 13) — так и должно быть; запиши,
+   что видит пользователь в карточке.
 2. Квота `0` → безлимит, звонок проходит.
 3. Страница «ИИ: расход и остаток»: остаток, процент и разбивка сходятся с
    `SELECT CATEGORY, STATUS, COUNT(*), SUM(COST_MICRO) FROM

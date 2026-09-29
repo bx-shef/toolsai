@@ -128,6 +128,28 @@ ai.controller.integration.thirdparty.callbackError
 
 ---
 
+### 5а. Связка «audio требует text»
+
+`ai/lib/Engine/ThirdParty.php:297-310` — `hasQuality()`:
+
+```php
+// for audio category is required to exists any provider in text category
+if ($this->getCategory() === $categoryAudio) {
+    return !empty(Engine::getByCategory($categoryText, $this->context));
+}
+```
+
+Наш audio-движок виден в CRM только пока жив text-движок. Если Битрикс
+ужесточит условие (например, потребует text-движок **того же приложения** или
+конкретное качество), audio выпадет из списка, выбор в настройках ИИ станет
+пустым, и распознавание встанет без единой ошибки в интерфейсе.
+
+**Как заметить:** guard, раздел «КРИТИЧНО 5», проверяет видимость движка
+**с тем же фильтром качества**, что и CRM, плюс печатает, какой движок
+выбран в настройке `crm_copilot_fill_item_from_call_engine_audio`.
+
+---
+
 ## 🟧 Заметные точки
 
 ### 6. `BaasManager::isIgnored()` / `setIgnored()`
