@@ -171,7 +171,8 @@ HTTP-статус, текст из таймлайна.
 
 1. Настрой стенд: `docker compose exec -u www-data portal php
    /opt/stand/configure.php` — внешний адрес `http://portal`, провайдер
-   `echo`, `Проверить и включить`. Ожидается: все строки OK,
+   `echo`, `Проверить и включить`. Ожидается: все строки OK, кроме `selected …`
+   (код возврата 0 — их скрипт не считает),
    `engine audio` и `engine text` — `registered`, повторный запуск —
    `unchanged`. `selected audio/text` — FAIL «не выбран» или «выбран «X»»:
    прогон в настройки ИИ не пишет, это ожидаемо. Запиши, какой код там

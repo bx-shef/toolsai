@@ -286,6 +286,7 @@ Check::same('пустой и чужой — оба заменены нашими
 Check::same('отчёт говорит, что было', [$report['audio']['message'], $report['text']['message']], ['выбран наш', 'выбран наш (было «ChatGPT»)']);
 Check::same('сохранено один раз', \Bitrix\AI\Tuning\Manager::$saved, 1);
 Check::same('флажки «выбрал модуль» стоят', [Option::get('shef.toolsai', 'SYS_selected_audio'), Option::get('shef.toolsai', 'SYS_selected_text')], ['Y', 'Y']);
+Check::same('прежние значения запомнены — вернуть при удалении', [Option::get('shef.toolsai', 'SYS_previous_audio'), Option::get('shef.toolsai', 'SYS_previous_text')], ['', 'ChatGPT']);
 
 $report = $setup()->selectEngines();
 Check::same('повторно — уже наш, не сохраняется', [$report['audio']['message'], \Bitrix\AI\Tuning\Manager::$saved], ['выбран наш', 1]);
@@ -322,6 +323,12 @@ Check::same('audio не зарегистрирован — выбран толь
 ]);
 Check::same('отчёт по audio — FAIL, флажка нет', [$report['audio']['ok'], Option::get('shef.toolsai', 'SYS_selected_audio')], [false, '']);
 \Bitrix\AI\ThirdParty\Manager::$engines = $registered;
+
+$values = \Bitrix\AI\Tuning\Manager::$values;
+unset(\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text']);
+$report = $setup()->selectEngines();
+Check::same('настройки text нет — audio тоже не выбран', [$report['text']['ok'], $report['audio']['message'], \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio']], [false, 'без text не выбирается', '']);
+\Bitrix\AI\Tuning\Manager::$values = $values;
 
 \Bitrix\Main\Loader::$missing = ['crm'];
 Check::same('без crm — отказ, а не fatal', $setup()->selectEngines(), ['*' => ['ok' => false, 'message' => 'нет модулей ai или crm']]);

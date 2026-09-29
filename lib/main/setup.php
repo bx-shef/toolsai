@@ -23,6 +23,8 @@ final class Setup
 
 	/** Флажок «выбор движка в настройках ИИ сделал модуль» — повторён в install/index.php. */
 	public const OPTION_SELECTED_PREFIX = 'SYS_selected_';
+	/** Что стояло в настройке ИИ до выбора модулем — вернуть при удалении. */
+	public const OPTION_PREVIOUS_PREFIX = 'SYS_previous_';
 
 	public function __construct(private readonly Config $config)
 	{
@@ -298,9 +300,10 @@ final class Setup
 	 * text: код движка, которого нет, CRM ищет без фолбэка, а audio без text
 	 * CRM не видит (ThirdParty::hasQuality()).
 	 *
-	 * Что выбрал модуль, помечается (SYS_selected_<категория>): при удалении
-	 * модуля установщик очищает только такую настройку и только если там всё
-	 * ещё наш код — иначе CRM искал бы удалённый движок.
+	 * Что выбрал модуль, помечается (SYS_selected_<категория>), прежнее
+	 * значение запоминается (SYS_previous_<категория>): при удалении модуля
+	 * установщик возвращает его, если в настройке всё ещё наш код, — иначе
+	 * CRM искал бы удалённый движок.
 	 *
 	 * @return array<string, array{ok: bool, message: string}>
 	 */
@@ -321,8 +324,19 @@ final class Setup
 		$report = [];
 		$changed = false;
 
-		foreach(static::getSelectionSettings() as $category => $code)
+		// text первым: audio без text CRM не видит, и выбирать его одного
+		// незачем (ThirdParty::hasQuality()).
+		$settings = static::getSelectionSettings();
+		$settings = [Constants::CATEGORY_TEXT => $settings[Constants::CATEGORY_TEXT]] + $settings;
+
+		foreach($settings as $category => $code)
 		{
+			if($category !== Constants::CATEGORY_TEXT && !($report[Constants::CATEGORY_TEXT]['ok'] ?? false))
+			{
+				$report[$category] = ['ok' => false, 'message' => 'без text не выбирается'];
+				continue;
+			}
+
 			if(!$registrar->isRegistered($category))
 			{
 				$report[$category] = ['ok' => false, 'message' => 'движок не зарегистрирован'];
@@ -347,6 +361,7 @@ final class Setup
 			}
 
 			$item->setValue($own);
+			Option::set(Constants::MODULE_ID, static::OPTION_PREVIOUS_PREFIX.$category, $before);
 			Option::set(Constants::MODULE_ID, static::OPTION_SELECTED_PREFIX.$category, 'Y');
 			$changed = true;
 			$report[$category] = ['ok' => true, 'message' => $before === '' ? 'выбран наш' : 'выбран наш (было «'.$before.'»)'];

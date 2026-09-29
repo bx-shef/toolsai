@@ -263,11 +263,12 @@ Class shef_toolsai
 		return true;
 	}
 	/**
-	 * Очистить выбор движка в настройках ИИ, если его сделал модуль и там всё
-	 * ещё наш код. Иначе после удаления CRM искал бы удалённый движок строго
-	 * по коду, без фолбэка, и распознавание на других движках встало бы.
-	 * Выбор, сделанный администратором, не трогаем. Классы модуля не нужны:
-	 * флажок и коды — литералами (Setup::OPTION_SELECTED_PREFIX).
+	 * Снять наш движок с настройки ИИ, если там всё ещё наш код: иначе после
+	 * удаления CRM искал бы удалённый движок строго по коду, без фолбэка, и
+	 * распознавание на других движках встало бы. Выбирал модуль — вернуть,
+	 * что стояло до него; выбирал администратор руками — очистить. Чужой
+	 * код не трогаем. Классы модуля не нужны: флажки и коды — литералами
+	 * (Setup::OPTION_SELECTED_PREFIX, OPTION_PREVIOUS_PREFIX).
 	 */
 	private function unselectEngines(): void
 	{
@@ -293,17 +294,17 @@ Class shef_toolsai
 			
 			foreach($settings as $category => $code)
 			{
-				if(Config\Option::get($this->MODULE_ID, 'SYS_selected_'.$category, 'N') !== 'Y')
+				$item = $manager->getItem($code);
+				if($item === null || (string)$item->getValue() !== 'sheftoolsai_'.$category)
 				{
 					continue;
 				}
 				
-				$item = $manager->getItem($code);
-				if($item !== null && (string)$item->getValue() === 'sheftoolsai_'.$category)
-				{
-					$item->setValue('');
-					$changed = true;
-				}
+				$previous = Config\Option::get($this->MODULE_ID, 'SYS_selected_'.$category, 'N') === 'Y'
+					? (string)Config\Option::get($this->MODULE_ID, 'SYS_previous_'.$category, '')
+					: '';
+				$item->setValue(str_starts_with($previous, 'sheftoolsai_') ? '' : $previous);
+				$changed = true;
 			}
 			
 			if($changed)
