@@ -19,15 +19,21 @@ use Shef\ToolsAi\Provider\Llm\LlmProviderInterface;
  */
 final class HealthAnalyzer
 {
+	/**
+	 * Схема ответа — только типы, без minimum/maximum/maxLength: строгий
+	 * режим structured outputs принимает не все ключевые слова JSON Schema, и
+	 * лишнее даёт 400 на каждый анализ. Границы держит Verdict::fromArray():
+	 * риск подрезается в 0-100, тексты обрезаются.
+	 */
 	public const SCHEMA = [
 		'type' => 'object',
 		'required' => ['risk', 'needSenior', 'why', 'nextStep'],
 		'additionalProperties' => false,
 		'properties' => [
-			'risk' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100],
+			'risk' => ['type' => 'integer', 'description' => 'вероятность потери сделки, 0-100'],
 			'needSenior' => ['type' => 'boolean'],
-			'why' => ['type' => 'string', 'maxLength' => 500],
-			'nextStep' => ['type' => 'string', 'maxLength' => 300],
+			'why' => ['type' => 'string', 'description' => 'одно-два предложения, до 500 символов'],
+			'nextStep' => ['type' => 'string', 'description' => 'что сделать сейчас, до 300 символов'],
 		],
 	];
 

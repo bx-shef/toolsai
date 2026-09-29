@@ -249,6 +249,8 @@ Class shef_toolsai
 			\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(false);
 		}
 		
+		$this->unselectEngines();
+		
 		// shef.options — чужой модуль, он остаётся; подключить явно.
 		if(\Bitrix\Main\Loader::includeModule('shef.options'))
 		{
@@ -259,6 +261,61 @@ Class shef_toolsai
 		}
 		
 		return true;
+	}
+	/**
+	 * Снять наш движок с настройки ИИ, если там всё ещё наш код: иначе после
+	 * удаления CRM искал бы удалённый движок строго по коду, без фолбэка, и
+	 * распознавание на других движках встало бы. Выбирал модуль — вернуть,
+	 * что стояло до него; выбирал администратор руками — очистить. Чужой
+	 * код не трогаем. Классы модуля не нужны: флажки и коды — литералами
+	 * (Setup::OPTION_SELECTED_PREFIX, OPTION_PREVIOUS_PREFIX).
+	 */
+	private function unselectEngines(): void
+	{
+		try
+		{
+			if(
+				!\Bitrix\Main\Loader::includeModule('ai')
+				|| !\Bitrix\Main\Loader::includeModule('crm')
+				|| !class_exists(\Bitrix\AI\Tuning\Manager::class)
+				|| !class_exists(\Bitrix\Crm\Integration\AI\EventHandler::class)
+			)
+			{
+				return;
+			}
+			
+			$settings = [
+				'audio' => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE,
+				'text' => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE,
+			];
+			
+			$manager = new \Bitrix\AI\Tuning\Manager();
+			$changed = false;
+			
+			foreach($settings as $category => $code)
+			{
+				$item = $manager->getItem($code);
+				if($item === null || (string)$item->getValue() !== 'sheftoolsai_'.$category)
+				{
+					continue;
+				}
+				
+				$previous = Config\Option::get($this->MODULE_ID, 'SYS_selected_'.$category, 'N') === 'Y'
+					? (string)Config\Option::get($this->MODULE_ID, 'SYS_previous_'.$category, '')
+					: '';
+				$item->setValue(str_starts_with($previous, 'sheftoolsai_') ? '' : $previous);
+				$changed = true;
+			}
+			
+			if($changed)
+			{
+				$manager->save();
+			}
+		}
+		catch(\Throwable $throwable)
+		{
+		
+		}
 	}
 	// endregion ////
 	

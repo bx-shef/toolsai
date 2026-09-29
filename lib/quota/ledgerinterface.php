@@ -16,7 +16,10 @@ interface LedgerInterface
 	/**
 	 * @param int $estimateMicro оценка стоимости: пока запрос у провайдера,
 	 *        она уже занимает квоту
-	 * @return int|null ID записи; null — задание с этим хэшем уже было
+	 * @return int|null ID записи; null — задание с этим хэшем уже обработано
+	 *         или обрабатывается живым процессом. Запись «в работе», брошенная
+	 *         умершим процессом, отдаётся заново.
+	 * @throws \RuntimeException журнал не записан — это не «дубликат»
 	 */
 	public function start(string $engineCode, string $category, string $providerCode, ?string $jobHash, int $estimateMicro = 0): ?int;
 

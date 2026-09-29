@@ -48,10 +48,16 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
 ## B. Движки
 
 1. Задать внешний адрес → «Проверить и включить» → `engine audio`,
-   `engine text` — `registered`; повторно — `unchanged`.
-2. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
+   `engine text` — `registered`; повторно — `unchanged`; `selected audio`,
+   `selected text` — FAIL с тем, что выбрано сейчас (записать): прогон в
+   настройки ИИ не пишет.
+2. Настройки модуля → «Движок» → «Выбрать движок модуля» → «Готово», в
+   строке и в `/settings/configs/?page=ai` — `sheftoolsai_audio` и
+   `sheftoolsai_text`; «Проверить и включить» — `selected …` «выбран наш».
+   Не администратором и без `sessid` в ссылке — ничего не меняется.
+3. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
    — две строки, адрес с `?token=`.
-3. `cli/core-api-guard.php` — без FAIL, кроме ожидаемых на этом стенде (записать).
+4. `cli/core-api-guard.php` — без FAIL, кроме ожидаемых на этом стенде (записать).
 
 ## C. Контракт эндпоинта
 
@@ -60,6 +66,8 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
 | GET | 200 `{"status":"ok"}` |
 | POST без токена / с чужим | 403 |
 | POST с колбэком на чужой хост | 400 |
+| POST без `hash` в колбэке | 400 `no_hash` |
+| POST с `prompt.file` на внутренний адрес (не портал) | 202, затем `ERROR` / `file_download`, провайдер не вызван |
 | POST корректный | **202**, время ответа < 1 с |
 
 Время ответа — главное на apache + mod_php (BitrixVM): там нет
@@ -97,6 +105,11 @@ OpenAI-совместимое API (стенд: `docker/mock-openai`; боево�
 - повтор сразу — без второй эскалации;
 - свежая сделка — «в работе», модель не вызвана;
 - агент в `b_agent` один, после него текущий пользователь прежний.
+
+## G2. Токен
+
+- «Сменить токен эндпоинта» — движки `updated`, старый токен — 403, новый
+  работает.
 
 ## H. Удаление
 

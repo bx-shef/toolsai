@@ -4,6 +4,7 @@ use Bitrix\Main\Localization\Loc;
 use Shef\Options\Main\Options;
 use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Main\Constants;
+use Shef\ToolsAi\Main\Setup;
 
 /**
  * Опции для страницы настроек
@@ -26,6 +27,62 @@ if(!$response->isSuccess())
 $options = $response->getData()['OPTIONS'];
 
 $config = new Config();
+
+// region Выбор движка в настройках ИИ ////
+/**
+ * CRM берёт движок строго по коду из настроек ИИ портала (гейт 10 в
+ * docs/00-research.md). Писать туда модуль вправе только по явному
+ * действию администратора отсюда, со страницы настроек модуля (решение
+ * владельца 2026-09-29): установщик и «Проверить и включить» выбор только
+ * показывают.
+ *
+ * Действие — GET со sessid (options.php — каноническая копия из
+ * shef.options и не правится, своей формы на странице нет), только
+ * администратору, после — редирект, чтобы обновление страницы не повторяло
+ * запись.
+ */
+$selectResult = null;
+if(isset($_GET['shef_toolsai_select']) && $_GET['shef_toolsai_select'] === 'Y')
+{
+	$isAdmin = isset($GLOBALS['USER']) && $GLOBALS['USER'] instanceof \CUser && $GLOBALS['USER']->IsAdmin();
+	if($isAdmin && check_bitrix_sessid())
+	{
+		// Настройки ИИ — чужая подсистема: её сбой не должен закрывать
+		// страницу настроек модуля.
+		try
+		{
+			$report = (new Setup($config))->selectEngines();
+			$ok = array_filter($report, static fn(array $row): bool => !$row['ok']) === [];
+		}
+		catch(\Throwable $throwable)
+		{
+			$ok = false;
+		}
+
+		LocalRedirect('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_selected='.($ok ? 'ok' : 'fail'));
+	}
+}
+if(isset($_GET['shef_toolsai_selected']) && in_array($_GET['shef_toolsai_selected'], ['ok', 'fail'], true))
+{
+	$selectResult = $_GET['shef_toolsai_selected'];
+}
+
+$selection = [];
+try
+{
+	$selection = (new Setup($config))->getEngineSelection();
+}
+catch(\Throwable $throwable)
+{
+}
+$showSelection = static fn(?string $value): string => match(true)
+{
+	$value === null => Loc::getMessage('shef.toolsai_TAB_DEF_Selection_none'),
+	$value === '' => Loc::getMessage('shef.toolsai_TAB_DEF_Selection_empty'),
+	default => htmlspecialcharsbx($value),
+};
+// endregion ////
+
 $providers = [
 	Constants::PROVIDER_ECHO => Loc::getMessage($options->moduleId.'_PROVIDER_echo'),
 	Constants::PROVIDER_OPENAI => Loc::getMessage($options->moduleId.'_PROVIDER_openai'),
@@ -48,6 +105,23 @@ $options->addTab(
 					),
 				]))
 				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\RowInfo('Selection'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEF_Selection', [
+					'#AUDIO#' => $showSelection($selection[Constants::CATEGORY_AUDIO] ?? null),
+					'#TEXT#' => $showSelection($selection[Constants::CATEGORY_TEXT] ?? null),
+					'#OWN_AUDIO#' => Constants::getEngineCode(Constants::CATEGORY_AUDIO),
+					'#OWN_TEXT#' => Constants::getEngineCode(Constants::CATEGORY_TEXT),
+					'#URL#' => '/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get(),
+					'#RESULT#' => $selectResult === null ? '' : Loc::getMessage($options->moduleId.'_TAB_DEF_Selection_'.$selectResult),
+				]))
+				->setType(
+					($selection[Constants::CATEGORY_AUDIO] ?? null) === Constants::getEngineCode(Constants::CATEGORY_AUDIO)
+					&& ($selection[Constants::CATEGORY_TEXT] ?? null) === Constants::getEngineCode(Constants::CATEGORY_TEXT)
+						? Options\TypeUIAlert::Note
+						: Options\TypeUIAlert::Warning
+				)
 		)
 		->addOption(
 			(new Options\Text('publicurl'))

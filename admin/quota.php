@@ -46,12 +46,21 @@ if(!Loader::includeModule('shef.toolsai'))
 // Права проверены и на показ, и на действие: кнопка ведёт POST сюда же.
 $setupReport = null;
 $request = Application::getInstance()->getContext()->getRequest();
-if($request->isPost() && $request->getPost('setup') === 'Y' && check_bitrix_sessid())
+if($request->isPost() && check_bitrix_sessid())
 {
-	$setupReport = (new Setup(Container::getConfig()))->run(
-		(string)Application::getDocumentRoot(),
-		dirname(__DIR__)
-	);
+	$setup = new Setup(Container::getConfig());
+
+	if($request->getPost('setup') === 'Y')
+	{
+		$setupReport = $setup->run(
+			(string)Application::getDocumentRoot(),
+			dirname(__DIR__)
+		);
+	}
+	elseif($request->getPost('rotate') === 'Y')
+	{
+		$setupReport = $setup->rotateToken();
+	}
 }
 
 $APPLICATION->SetTitle(Loc::getMessage('SH_TOOLSAI_QUOTA_TITLE'));
@@ -162,6 +171,14 @@ $h = static fn(mixed $value): string => htmlspecialcharsbx((string)$value);
 	<input type="hidden" name="setup" value="Y">
 	<input type="submit" class="adm-btn-save" value="<?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_SETUP'))?>">
 	<span style="color:#777"><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_SETUP_NOTE'))?></span>
+</form>
+
+<form method="post" action="<?=$h($APPLICATION->GetCurPage())?>?lang=<?=$h(LANGUAGE_ID)?>" style="margin-top:10px"
+	onsubmit="return confirm(<?=$h(\CUtil::PhpToJSObject((string)Loc::getMessage('SH_TOOLSAI_QUOTA_ROTATE_CONFIRM')))?>);">
+	<?=bitrix_sessid_post()?>
+	<input type="hidden" name="rotate" value="Y">
+	<input type="submit" class="adm-btn" value="<?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_ROTATE'))?>">
+	<span style="color:#777"><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_ROTATE_NOTE'))?></span>
 </form>
 
 <h3><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DEALS'))?></h3>

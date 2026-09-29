@@ -94,7 +94,14 @@ HTTP-статус, текст из таймлайна.
 3. Права: `docker compose exec portal chown -R www-data:www-data /var/www/html`.
 4. Администратор — пользователь 1. Запиши версии модулей `main`, `ai`,
    `crm`, `voximplant`, `rest` (Настройки → Модули или
-   `SELECT ID, VERSION FROM b_module`… версии в `bitrix/modules/<id>/install/version.php`).
+   `bitrix/modules/<id>/install/version.php`).
+
+**Команды модуля в этом промпте** — всегда из контейнера и от `www-data`,
+иначе файлы кеша останутся за root, а скрипты не найдут корень сайта:
+`docker compose exec -u www-data portal php /var/www/html/bitrix/modules/shef.toolsai/cli/<скрипт>.php`, переменные — через
+`env`: `docker compose exec -u www-data portal env DEALS=15 php /var/www/html/bitrix/modules/shef.toolsai/cli/deal-health.php`.
+Каталог `/opt/shef.toolsai` — исходники только для чтения, из него
+скрипты не запускать.
 5. Есть ли модуль `bitrix24`? (`ls docker/www/bitrix/modules | grep -x bitrix24`).
    Если есть — промо-лимит 5 запросов в сутки включится, половина
    `docs/00-research.md` про лимиты неверна для стенда. Отметь в отчёте.
@@ -151,6 +158,9 @@ HTTP-статус, текст из таймлайна.
 | 10 | `TargetResolver` | цели — Deal и Lead | выбор сделки в тесте |
 | 11 | `\Bitrix\Crm\Timeline\CommentEntry::create()`, `\Bitrix\Crm\Activity\Entity\ToDo` | есть; сигнатуры как в `Deal\Escalation` | эскалация |
 | 12 | `\Bitrix\Crm\ActivityBindingTable`, `\Bitrix\Crm\History\Entity\DealStageHistoryTable` | есть, поля как в `Deal\ContextBuilder` | анализ сделок |
+| 13 | `ThirdParty::hasQuality()` | audio виден только при наличии text-движка | регистрация обоих вместе |
+| 14 | `\Bitrix\AI\Tuning\Manager::getItem()/save()`, `$item->setValue()`, `EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE` / `_TEXT_CODE` | есть; движок CRM берёт строго по коду из этой настройки | `Main\Setup::getEngineSelection()`, `selectEngines()` |
+| 15 | одно задание Transcribe на дело (`callautostartstrategy.php:86-89`) | прежнее задание глушит автозапуск | каждый тест — новый звонок |
 
 Расхождение — в отчёт, с оценкой: ломает ли оно модуль, и как (молча или
 с ошибкой).
@@ -161,33 +171,50 @@ HTTP-статус, текст из таймлайна.
 
 1. Настрой стенд: `docker compose exec -u www-data portal php
    /opt/stand/configure.php` — внешний адрес `http://portal`, провайдер
-   `echo`, `Проверить и включить`. Ожидается: все строки OK,
-   `engine audio` и `engine text` — `registered`. Повторный запуск —
-   `unchanged`.
-2. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
+   `echo`, `Проверить и включить`. Ожидается: все строки OK, кроме `selected …`
+   (код возврата 0 — их скрипт не считает),
+   `engine audio` и `engine text` — `registered`, повторный запуск —
+   `unchanged`. `selected audio/text` — FAIL «не выбран» или «выбран «X»»:
+   прогон в настройки ИИ не пишет, это ожидаемо. Запиши, какой код там
+   стоял по умолчанию на этой коробке (находка для отчёта).
+2. Выбор движка — **со страницы настроек модуля**, как это сделает
+   администратор: `/bitrix/admin/settings.php?mid=shef.toolsai`, вкладка
+   «Движок», ссылка «Выбрать движок модуля» (браузер — Playwright, вход
+   администратором). Ожидается: после редиректа «Готово: выбраны движки
+   модуля», в строке — оба кода `sheftoolsai_*`, в
+   `/settings/configs/?page=ai` — наши движки; повторный `configure.php` —
+   `selected audio/text` «выбран наш». Проверь и отказ: ссылка без
+   `sessid` и под пользователем без прав администратора ничего не меняет.
+3. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
    LIKE 'sheftoolsai%';` — две строки, адрес с `?token=` (в отчёт — маской).
-3. Контракт руками, **изнутри контейнера** (`docker compose exec portal bash`):
+4. Контракт руками, **изнутри контейнера** (`docker compose exec portal bash`):
    - `curl -i http://portal/bitrix/tools/shef_toolsai_completions.php` → 200,
      `{"status":"ok"}`;
    - POST без токена → 403; с чужим токеном → 403;
    - POST с токеном и телом из `docs/01-engine-contract.md`, где
      `callbackUrl` ведёт на `http://evil.example/` → 400;
+   - то же, но в `callbackUrl` нет `hash` → 400 `no_hash`;
+   - POST с `prompt.file` = `http://169.254.169.254/latest/meta-data/` (или
+     любой внутренний адрес стенда, кроме `portal`) → 202, но скачивание
+     отказано: в журнале `ERROR`/`file_download`, провайдер не вызван
+     (`/__stats`);
    - POST с токеном и корректным телом (колбэк на `http://portal/…` с
      выдуманным `hash`) → **202**, и время ответа: `curl -w
      '%{time_total}'` **меньше 1 секунды**. Это ключевая проверка для
      apache + mod_php: ядро ждёт ответ 5 секунд, и если соединение держится
      до конца обработки, задание упадёт по таймауту. Если время ≈ длительности
      обработки — это находка №1 с высшим приоритетом.
-4. `ai`: `\Bitrix\AI\Engine::getByCategory('audio', \Bitrix\AI\Context::getFake())`
+5. `ai`: `\Bitrix\AI\Engine::getByCategory('audio', \Bitrix\AI\Context::getFake())`
    (или то, что есть на твоём ядре) видит движок `sheftoolsai_audio`.
 
 ## Этап 4. Звонок → транскрипт (заглушка)
 
 Цель: главный путь проходит без денег.
 
-1. Лог автозапуска — `docs/04-runbook.md`, шаг 1 (логгер
-   `crm.Integration.AI` в `bitrix/.settings_extra.php`, файл —
-   `/var/www/sh_log/crm-ai.log`).
+1. Лог автозапуска — `docs/04-runbook.md`, шаг 1: логгер
+   `crm.Integration.AI` в `docker/www/bitrix/.settings_extra.php`, **но путь
+   файла — `/var/www/sh_log/crm-ai.log`**, а не `/home/bitrix/sh_log/…` из
+   runbook (это путь BitrixVM, в контейнере его нет).
 2. Настройки автозапуска Копилота для воронки лидов и для основной воронки
    сделок: включить распознавание записи, входящие. **Сохранить явно**
    (гейт 3 и 4 в `docs/00-research.md`). Проверка —
@@ -199,7 +226,12 @@ HTTP-статус, текст из таймлайна.
 4. Вебхук: `docker compose exec -u www-data portal php /opt/stand/webhook.php`
    (если не вышло — создай руками, см. шапку скрипта).
 5. Звонок: `docker compose exec portal /opt/stand/test-call.sh
-   <адрес вебхука> lead`, потом то же с `deal`.
+   <адрес вебхука> lead`, потом то же с `deal`. **Каждая проверка — новый
+   звонок** (`test-call.sh` каждый раз заводит новый): на одно дело ядро
+   ставит задание распознавания один раз, и прежнее задание, даже упавшее,
+   глушит автозапуск (гейт 13). Упал — чини и звони заново, а не
+   перевешивай запись на тот же звонок. Ответственный (пользователь 1) должен
+   иметь право изменять дело звонка (гейт 12) — у администратора есть.
 6. Ожидается, для каждого звонка, в пределах минуты:
    - в `crm-ai.log` — попытка автозапуска и операция транскрибации;
    - в таймлайне лида/сделки — текст `[заглушка shef.toolsai] Расшифровка
@@ -209,7 +241,7 @@ HTTP-статус, текст из таймлайна.
    - `SELECT * FROM shef_toolsai_usage ORDER BY ID DESC LIMIT 5;` —
      `JOB_HASH` заполнен, `STATUS = SUCCESS`.
 7. Не появилось — **не чини наугад**:
-   `ACTIVITY_ID=<id дела> php cli/ai-call-autostart-diag.php` скажет, на каком
+   `docker compose exec -u www-data portal env ACTIVITY_ID=<id дела> php /var/www/html/bitrix/modules/shef.toolsai/cli/ai-call-autostart-diag.php` скажет, на каком
    гейте встало. Каждый гейт, который пришлось открыть, — в отчёт.
 8. Если сценарий цепочки дальше транскрипта включён (резюме, заполнение
    полей) — проверь, что пришли запросы категории `text` (строки
@@ -242,7 +274,9 @@ HTTP-статус, текст из таймлайна.
 
 1. `QUOTA=0.000001` в `configure.php` (одна микро-единица; env `QUOTA`) →
    звонок → в журнале `QUOTA_EXCEEDED`, провайдер **не** вызван
-   (`/__stats` не вырос), ядру ушла ошибка `quota_exceeded`.
+   (`/__stats` не вырос), ядру ушла ошибка `quota_exceeded`. Этот звонок
+   автоматически уже не распознается (гейт 13) — так и должно быть; запиши,
+   что видит пользователь в карточке.
 2. Квота `0` → безлимит, звонок проходит.
 3. Страница «ИИ: расход и остаток»: остаток, процент и разбивка сходятся с
    `SELECT CATEGORY, STATUS, COUNT(*), SUM(COST_MICRO) FROM
@@ -253,12 +287,14 @@ HTTP-статус, текст из таймлайна.
 
 ## Этап 7. Анализ сделок
 
-1. Сделка из этапа 4 (`deal`), сдвинь её «давность»: дела старше 14 дней
-   (`UPDATE b_crm_act SET CREATED = NOW() - INTERVAL 20 DAY WHERE ID IN (…)`
-   — только на стенде).
+1. Сделка из этапа 4 (`deal`), сдвинь её «давность» на 20 дней:
+   `UPDATE b_crm_act SET CREATED = NOW() - INTERVAL 20 DAY WHERE ID IN (…)`
+   (только на стенде). 20 — с запасом: сделка «в работе», пока дел не было
+   меньше `DEAL_idledays` (по умолчанию 3), а заглушки провайдера дают риск
+   `дни × 5 + 10`, то есть 70 и выше — с 12 дней.
 2. Настройки: «Анализ сделок» → включить, направление — основное, старший —
    пользователь 1, порог 70.
-3. `DEALS=<id> php cli/deal-health.php` → риск ≥ 70, «старший: да»,
+3. `docker compose exec -u www-data portal env DEALS=<id> php /var/www/html/bitrix/modules/shef.toolsai/cli/deal-health.php` → риск ≥ 70, «старший: да»,
    эскалация `comment, todo`. В карточке — комментарий «ИИ-анализ сделки…»
    и дело на пользователя 1 с дедлайном +24 ч.
 4. Повторный прогон сразу же — эскалации **нет** (защита от дублей).
@@ -272,16 +308,20 @@ HTTP-статус, текст из таймлайна.
 ## Этап 8. Обновление и удаление
 
 1. «Обновление платформы» имитацией: `BaasManager::setIgnored(false)` →
-   `php cli/setup.php` → снова `Y`.
+   `docker compose exec -u www-data portal php /var/www/html/bitrix/modules/shef.toolsai/cli/setup.php` → снова `Y`.
 2. Смени внешний адрес на `http://portal:80` → `setup.php` → движки
    `updated`, `b_ai_engine.COMPLETIONS_URL` новый; верни как было.
-3. Удаление `shef.problems` при стоящем `shef.toolsai` — отказ с понятным
+3. Ротация токена: кнопка «Сменить токен эндпоинта» на странице расхода
+   (или `docker compose exec -u www-data portal env ROTATE_TOKEN=1 php
+   /var/www/html/bitrix/modules/shef.toolsai/cli/setup.php`) → движки
+   `updated`, POST со старым токеном → 403, звонок проходит на новом.
+4. Удаление `shef.problems` при стоящем `shef.toolsai` — отказ с понятным
    текстом.
-4. Удаление `shef.toolsai`: движков в `b_ai_engine` нет, агента нет,
+5. Удаление `shef.toolsai`: движков в `b_ai_engine` нет, агента нет,
    заглушек нет, таблицы `shef_toolsai_*` удалены, настройки модуля
    удалены, `AI_IGNORE_BAAS` вернулся в `N` (его включал модуль). Чужие
    файлы в `/bitrix/admin` и `/bitrix/tools` на месте.
-5. Положи на место заглушки эндпоинта свой файл, поставь модуль — файл не
+6. Положи на место заглушки эндпоинта свой файл, поставь модуль — файл не
    перезаписан, в отчёте установки — ✖ по этой странице.
 
 ## Этап 9. Реальный провайдер (только если дан во входе)
@@ -297,7 +337,7 @@ HTTP-статус, текст из таймлайна.
 
 ## Бланк отчёта
 
-Сдай отчёт одним файлом `docs/reports/docker-<дата>.md` в своей ветке и
+Сдай отчёт одним файлом `docs/reports/docker-<дата>.md` (каталог создай) в своей ветке и
 кратко — в ответе. Форма:
 
 ```markdown

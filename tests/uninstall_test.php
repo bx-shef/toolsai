@@ -114,6 +114,52 @@ namespace Bitrix\Crm\Integration\AI
 	}
 }
 
+namespace Bitrix\AI\Tuning
+{
+	class Manager
+	{
+		public static array $values = [];
+		public static int $saved = 0;
+
+		public function getItem(string $code): ?object
+		{
+			if(!array_key_exists($code, static::$values))
+			{
+				return null;
+			}
+
+			return new class($code)
+			{
+				public function __construct(private readonly string $code) {}
+
+				public function getValue(): string
+				{
+					return Manager::$values[$this->code];
+				}
+
+				public function setValue(string $value): void
+				{
+					Manager::$values[$this->code] = $value;
+				}
+			};
+		}
+
+		public function save(): void
+		{
+			static::$saved++;
+		}
+	}
+}
+
+namespace Bitrix\Crm\Integration\AI
+{
+	class EventHandler
+	{
+		public const SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE = 'crm_copilot_fill_item_from_call_engine_audio';
+		public const SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE = 'crm_copilot_fill_item_from_call_engine_text';
+	}
+}
+
 namespace Shef\Options\Main\TempFile
 {
 	class Pid
@@ -204,6 +250,29 @@ $module = $given();
 Option::set('shef.toolsai', 'SYS_baasset', 'Y');
 $module->UnInstallEngine();
 Check::same('обход BaaS включали мы — снимается', \Bitrix\Crm\Integration\AI\BaasManager::$ignored, false);
+
+Check::group('выбор движка в настройках ИИ');
+
+$module = $given();
+Loader::$missing = [];
+\Bitrix\AI\Tuning\Manager::$values = [
+	'crm_copilot_fill_item_from_call_engine_audio' => 'sheftoolsai_audio',
+	'crm_copilot_fill_item_from_call_engine_text' => 'sheftoolsai_text',
+];
+Option::set('shef.toolsai', 'SYS_selected_audio', 'Y');
+Option::set('shef.toolsai', 'SYS_previous_audio', 'ChatGPT');
+$module->UnInstallEngine();
+Check::same('выбирал модуль — возвращено, что стояло до него', \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'], 'ChatGPT');
+Check::same('наш выбран руками — очищено: CRM не ищет удалённый движок', \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'], '');
+Check::same('сохранено', \Bitrix\AI\Tuning\Manager::$saved, 1);
+
+$module = $given();
+Loader::$missing = [];
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'] = 'Other';
+Option::set('shef.toolsai', 'SYS_selected_audio', 'Y');
+$module->UnInstallEngine();
+Check::same('выбирал модуль, но потом сменили на чужой — не тронуто', \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'], 'Other');
+Loader::$missing = ['ai'];
 
 Check::group('файлы: из каталога модуля, удаляются только свои');
 

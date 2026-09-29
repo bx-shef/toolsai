@@ -20,8 +20,26 @@ final class Callback
 {
 	private const TIMEOUT = 20;
 
-	public function __construct(private readonly TransportInterface $transport)
+	/**
+	 * Паузы перед повторами, секунд. Колбэк несёт уже оплаченный результат:
+	 * перезапуск php-fpm или 502 на портале не должны его съесть. Повторяем
+	 * только то, что может пройти со второго раза, — нет соединения, 429 и
+	 * 5xx; 4xx ядра (чужой hash, задание снято) повтором не лечится.
+	 */
+	public const RETRY_DELAYS = [1, 3];
+
+	/** @var callable(int): void */
+	private $sleep;
+
+	public function __construct(
+		private readonly TransportInterface $transport,
+		?callable $sleep = null,
+	)
 	{
+		$this->sleep = $sleep ?? static function(int $seconds): void
+		{
+			sleep($seconds);
+		};
 	}
 
 	/**
@@ -59,13 +77,28 @@ final class Callback
 			return false;
 		}
 
-		$response = $this->transport->post(
-			$url,
-			(string)json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
-			['Content-Type' => 'application/json'],
-			self::TIMEOUT
-		);
+		$json = (string)json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
-		return $response->status === 200;
+		foreach([0, ...static::RETRY_DELAYS] as $delay)
+		{
+			if($delay > 0)
+			{
+				($this->sleep)($delay);
+			}
+
+			$response = $this->transport->post($url, $json, ['Content-Type' => 'application/json'], self::TIMEOUT);
+
+			if($response->status === 200)
+			{
+				return true;
+			}
+
+			if($response->status !== 0 && $response->status !== 429 && $response->status < 500)
+			{
+				return false;
+			}
+		}
+
+		return false;
 	}
 }

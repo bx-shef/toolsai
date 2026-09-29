@@ -54,6 +54,12 @@ Check::same('без колбэка — 400', $endpoint->handle('POST', $query, (
 Check::same('категория image — 400', $endpoint->handle('POST', $query, (string)json_encode(makeCoreRequest(['category' => 'image'])))->status, 400);
 Check::same('больше лимита — 413', $endpoint->handle('POST', $query, str_repeat(' ', Endpoint::MAX_BODY_BYTES + 1))->status, 413);
 
+Check::same(
+	'без хэша задания — 400: нет ни дедупликации, ни защиты от повторов',
+	$endpoint->handle('POST', $query, (string)json_encode(makeCoreRequest(['callbackUrl' => 'https://crm.example.by/cb'])))->body,
+	['error' => 'no_hash']
+);
+
 Check::group('колбэк только на портал');
 
 $foreign = $endpoint->handle('POST', $query, (string)json_encode(makeCoreRequest([
@@ -77,6 +83,13 @@ Check::same(
 	$endpoint->handle('POST', $query, (string)json_encode(makeCoreRequest(['callbackUrl' => 'file:///etc/passwd'])))->status,
 	400
 );
+$guard = new CallbackGuard(['crm.example.by']);
+Check::same('user:pass@ на разрешённом хосте — отказ', $guard->isAllowed('https://user:pw@crm.example.by/cb'), false);
+Check::same('ftp на разрешённом хосте — отказ', $guard->isAllowed('ftp://crm.example.by/cb'), false);
+Check::same('gopher на разрешённом хосте — отказ', $guard->isAllowed('gopher://crm.example.by/cb'), false);
+Check::same('чужой порт — отказ', $guard->isAllowed('https://crm.example.by:8443/cb'), false);
+Check::same('регистр хоста и схемы не важен', $guard->isAllowed('HTTPS://CRM.Example.BY/cb'), true);
+Check::same('порт — часть хоста', (new CallbackGuard(['portal:8080']))->isAllowed('http://portal:8080/cb'), true);
 Check::same(
 	'хосты не заданы — никуда',
 	(new CallbackGuard([]))->isAllowed('https://crm.example.by/x'),

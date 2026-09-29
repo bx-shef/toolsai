@@ -44,6 +44,10 @@ Check::same('1e3 — мусор', OptionParser::micro('1e3', -1), -1);
 Check::same('отрицательное — мусор', OptionParser::micro('-5', -1), -1);
 Check::same('семь знаков после запятой — мусор', OptionParser::micro('1.0000001', -1), -1);
 Check::same('массив — мусор', OptionParser::micro(['5'], -1), -1);
+Check::same('12 знаков целой и 6 дробной — ровно, без float', OptionParser::micro('123456789012.123456'), 123456789012123456);
+Check::same('13 знаков целой — мусор', OptionParser::micro('1234567890123', -1), -1);
+Check::same('целое числом', OptionParser::micro(5), 5_000_000);
+Check::same('отрицательное числом — умолчание', OptionParser::micro(-5, -1), -1);
 
 Check::group('ID — строго');
 

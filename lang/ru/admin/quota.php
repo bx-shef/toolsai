@@ -30,3 +30,6 @@ $MESS['SH_TOOLSAI_QUOTA_PUBLIC_URL'] = 'Внешний адрес портала
 $MESS['SH_TOOLSAI_QUOTA_SETUP'] = 'Проверить и включить';
 $MESS['SH_TOOLSAI_QUOTA_SETUP_NOTE'] = 'Токен, заглушки, обход BaaS, регистрация движков, агент. Жать после установки и после каждого обновления платформы.';
 $MESS['SH_TOOLSAI_QUOTA_DEALS'] = 'Анализ сделок: последние проверки';
+$MESS['SH_TOOLSAI_QUOTA_ROTATE'] = 'Сменить токен эндпоинта';
+$MESS['SH_TOOLSAI_QUOTA_ROTATE_NOTE'] = 'Если адрес эндпоинта с токеном утёк (access-логи, дамп b_ai_engine). Движки перерегистрируются с новым адресом.';
+$MESS['SH_TOOLSAI_QUOTA_ROTATE_CONFIRM'] = 'Сменить токен? Задания, уже отправленные ядром на старый адрес, получат отказ.';
