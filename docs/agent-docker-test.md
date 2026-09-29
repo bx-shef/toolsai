@@ -159,7 +159,7 @@ HTTP-статус, текст из таймлайна.
 | 11 | `\Bitrix\Crm\Timeline\CommentEntry::create()`, `\Bitrix\Crm\Activity\Entity\ToDo` | есть; сигнатуры как в `Deal\Escalation` | эскалация |
 | 12 | `\Bitrix\Crm\ActivityBindingTable`, `\Bitrix\Crm\History\Entity\DealStageHistoryTable` | есть, поля как в `Deal\ContextBuilder` | анализ сделок |
 | 13 | `ThirdParty::hasQuality()` | audio виден только при наличии text-движка | регистрация обоих вместе |
-| 14 | `\Bitrix\AI\Tuning\Manager::getItem()/save()`, `$item->setValue()`, `EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE` / `_TEXT_CODE` | есть; движок CRM берёт строго по коду из этой настройки | `Main\Setup::ensureEngineSelected()` |
+| 14 | `\Bitrix\AI\Tuning\Manager::getItem()/save()`, `$item->setValue()`, `EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE` / `_TEXT_CODE` | есть; движок CRM берёт строго по коду из этой настройки | `Main\Setup::getEngineSelection()`, `selectEngines()` |
 | 15 | одно задание Transcribe на дело (`callautostartstrategy.php:86-89`) | прежнее задание глушит автозапуск | каждый тест — новый звонок |
 
 Расхождение — в отчёт, с оценкой: ломает ли оно модуль, и как (молча или
@@ -172,15 +172,21 @@ HTTP-статус, текст из таймлайна.
 1. Настрой стенд: `docker compose exec -u www-data portal php
    /opt/stand/configure.php` — внешний адрес `http://portal`, провайдер
    `echo`, `Проверить и включить`. Ожидается: все строки OK,
-   `engine audio` и `engine text` — `registered`, `selected audio/text` —
-   «был пуст — выбран наш» или «выбран наш». Повторный запуск —
-   `unchanged`. `selected … — выбран другой движок`: выбери наш в
-   `/settings/configs/?page=ai` и запиши, какой код там стоял по умолчанию
-   на этой коробке (находка для отчёта: значит, «из коробки» модуль не
-   заработает).
-2. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
+   `engine audio` и `engine text` — `registered`, повторный запуск —
+   `unchanged`. `selected audio/text` — FAIL «не выбран» или «выбран «X»»:
+   прогон в настройки ИИ не пишет, это ожидаемо. Запиши, какой код там
+   стоял по умолчанию на этой коробке (находка для отчёта).
+2. Выбор движка — **со страницы настроек модуля**, как это сделает
+   администратор: `/bitrix/admin/settings.php?mid=shef.toolsai`, вкладка
+   «Движок», ссылка «Выбрать движок модуля» (браузер — Playwright, вход
+   администратором). Ожидается: после редиректа «Готово: выбраны движки
+   модуля», в строке — оба кода `sheftoolsai_*`, в
+   `/settings/configs/?page=ai` — наши движки; повторный `configure.php` —
+   `selected audio/text` «выбран наш». Проверь и отказ: ссылка без
+   `sessid` и под пользователем без прав администратора ничего не меняет.
+3. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
    LIKE 'sheftoolsai%';` — две строки, адрес с `?token=` (в отчёт — маской).
-3. Контракт руками, **изнутри контейнера** (`docker compose exec portal bash`):
+4. Контракт руками, **изнутри контейнера** (`docker compose exec portal bash`):
    - `curl -i http://portal/bitrix/tools/shef_toolsai_completions.php` → 200,
      `{"status":"ok"}`;
    - POST без токена → 403; с чужим токеном → 403;
@@ -197,7 +203,7 @@ HTTP-статус, текст из таймлайна.
      apache + mod_php: ядро ждёт ответ 5 секунд, и если соединение держится
      до конца обработки, задание упадёт по таймауту. Если время ≈ длительности
      обработки — это находка №1 с высшим приоритетом.
-4. `ai`: `\Bitrix\AI\Engine::getByCategory('audio', \Bitrix\AI\Context::getFake())`
+5. `ai`: `\Bitrix\AI\Engine::getByCategory('audio', \Bitrix\AI\Context::getFake())`
    (или то, что есть на твоём ядре) видит движок `sheftoolsai_audio`.
 
 ## Этап 4. Звонок → транскрипт (заглушка)

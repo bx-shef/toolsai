@@ -13,7 +13,11 @@
  * * движок с тем же адресом — unchanged, с другим — unregister + register
  *   (пара код+категория уникальна), нового — registered;
  * * обход BaaS: уже включён — не трогаем; выключен — включаем;
- * * агент регистрируется один раз.
+ * * агент регистрируется один раз;
+ * * выбор движка в настройках ИИ портала run() только показывает, пишет
+ *   его selectEngines() — кнопка на странице настроек модуля (решение
+ *   владельца): заменяет и чужой выбор, но только зарегистрированными
+ *   движками и audio — только вместе с text.
  *
  * Ядро (ai, crm, CAgent) подменено заглушками ниже, классы модуля настоящие.
  */
@@ -225,10 +229,14 @@ Check::same(
 	\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_audio']['completions_url'],
 	'https://crm.example.by'.Constants::ENDPOINT_FILE.'?token='.$token
 );
-Check::same('audio: настройка была пуста — выбран наш', [$report['selected audio']['ok'], \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio']], [true, 'sheftoolsai_audio']);
-Check::same('text: выбран чужой — не перезаписан', \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'], 'ChatGPT');
-Check::same('и отчёт говорит, где выбрать наш', [$report['selected text']['ok'], str_contains($report['selected text']['message'], '/settings/configs/?page=ai')], [false, true]);
-Check::same('настройки сохранены один раз', \Bitrix\AI\Tuning\Manager::$saved, 1);
+Check::same(
+	'выбор в настройках ИИ run() только показывает — ничего не записано',
+	[\Bitrix\AI\Tuning\Manager::$values, \Bitrix\AI\Tuning\Manager::$saved],
+	[['crm_copilot_fill_item_from_call_engine_audio' => '', 'crm_copilot_fill_item_from_call_engine_text' => 'ChatGPT'], 0]
+);
+Check::same('audio пуст — отчёт FAIL «не выбран»', [$report['selected audio']['ok'], str_starts_with($report['selected audio']['message'], 'не выбран')], [false, true]);
+Check::same('text чужой — отчёт называет его и кнопку', [$report['selected text']['ok'], str_contains($report['selected text']['message'], '«ChatGPT»'), str_contains($report['selected text']['message'], 'Выбрать движок модуля')], [false, true, true]);
+Check::same('флажков «выбрал модуль» нет', [Option::get('shef.toolsai', 'SYS_selected_audio'), Option::get('shef.toolsai', 'SYS_selected_text')], ['', '']);
 Check::same('категория и код', [\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']['category'], \Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']['code']], ['text', 'sheftoolsai_text']);
 
 Check::group('повторный прогон — идемпотентен');
@@ -239,8 +247,7 @@ $report = $setup()->run($portal.'/www', $root);
 Check::same('токен тот же', Option::get('shef.toolsai', 'SYS_token'), $token);
 Check::same('движки — unchanged', [$report['engine audio']['message'], $report['engine text']['message']], ['unchanged', 'unchanged']);
 Check::same('в ядро ничего не ушло', \Bitrix\AI\ThirdParty\Manager::$calls, []);
-Check::same('выбор наш — не сохраняется повторно', \Bitrix\AI\Tuning\Manager::$saved, 1);
-Check::same('и отчёт — «выбран наш»', [$report['selected audio']['ok'], $report['selected audio']['message']], [true, 'выбран наш']);
+Check::same('настройки ИИ по-прежнему не тронуты', \Bitrix\AI\Tuning\Manager::$saved, 0);
 Check::same('BaaS уже включён — не трогаем', \Bitrix\Crm\Integration\AI\BaasManager::$set, 1);
 Check::same('агент один', \CAgent::$agents, [Setup::AGENT_NAME]);
 
@@ -269,22 +276,57 @@ Check::same('токен не сменён', Option::get('shef.toolsai', 'SYS_tok
 Check::same('отчёт говорит об этом', $report['token']['ok'], false);
 Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
 
+Check::group('выбор движка — только по кнопке на странице настроек');
+
+$report = $setup()->selectEngines();
+Check::same('пустой и чужой — оба заменены нашими', \Bitrix\AI\Tuning\Manager::$values, [
+	'crm_copilot_fill_item_from_call_engine_audio' => 'sheftoolsai_audio',
+	'crm_copilot_fill_item_from_call_engine_text' => 'sheftoolsai_text',
+]);
+Check::same('отчёт говорит, что было', [$report['audio']['message'], $report['text']['message']], ['выбран наш', 'выбран наш (было «ChatGPT»)']);
+Check::same('сохранено один раз', \Bitrix\AI\Tuning\Manager::$saved, 1);
+Check::same('флажки «выбрал модуль» стоят', [Option::get('shef.toolsai', 'SYS_selected_audio'), Option::get('shef.toolsai', 'SYS_selected_text')], ['Y', 'Y']);
+
+$report = $setup()->selectEngines();
+Check::same('повторно — уже наш, не сохраняется', [$report['audio']['message'], \Bitrix\AI\Tuning\Manager::$saved], ['выбран наш', 1]);
+
+$report = $setup()->run($portal.'/www', $root);
+Check::same('и run() теперь видит наш', [$report['selected audio'], $report['selected text']['ok']], [['ok' => true, 'message' => 'выбран наш'], true]);
+
 Check::group('выбор — только зарегистрированных движков');
 
-\Bitrix\AI\ThirdParty\Manager::$engines = [];
-\Bitrix\AI\ThirdParty\Manager::$fail = ['sheftoolsai_text'];
+Option::set('shef.toolsai', 'SYS_selected_audio', '');
+Option::set('shef.toolsai', 'SYS_selected_text', '');
 \Bitrix\AI\Tuning\Manager::$values = [
 	'crm_copilot_fill_item_from_call_engine_audio' => '',
 	'crm_copilot_fill_item_from_call_engine_text' => '',
 ];
-$report = $setup()->run($portal.'/www', $root);
+$saved = \Bitrix\AI\Tuning\Manager::$saved;
+
+$registered = \Bitrix\AI\ThirdParty\Manager::$engines;
+unset(\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']);
+$report = $setup()->selectEngines();
 Check::same(
-	'text не зарегистрирован — его настройка осталась пустой, CRM возьмёт движок по умолчанию',
-	\Bitrix\AI\Tuning\Manager::$values,
-	['crm_copilot_fill_item_from_call_engine_audio' => '', 'crm_copilot_fill_item_from_call_engine_text' => '']
+	'text не зарегистрирован — не выбрано ничего: код движка, которого нет, CRM ищет без фолбэка',
+	[\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'], \Bitrix\AI\Tuning\Manager::$saved],
+	['', $saved]
 );
-Check::same('без text и audio не выбирается', array_key_exists('selected audio', $report), false);
-\Bitrix\AI\ThirdParty\Manager::$fail = [];
+Check::same('и отчёт отсылает к «Проверить и включить»', [$report['*']['ok'], str_contains($report['*']['message'], 'Проверить и включить')], [false, true]);
+
+\Bitrix\AI\ThirdParty\Manager::$engines = $registered;
+unset(\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_audio']);
+$report = $setup()->selectEngines();
+Check::same('audio не зарегистрирован — выбран только text', \Bitrix\AI\Tuning\Manager::$values, [
+	'crm_copilot_fill_item_from_call_engine_audio' => '',
+	'crm_copilot_fill_item_from_call_engine_text' => 'sheftoolsai_text',
+]);
+Check::same('отчёт по audio — FAIL, флажка нет', [$report['audio']['ok'], Option::get('shef.toolsai', 'SYS_selected_audio')], [false, '']);
+\Bitrix\AI\ThirdParty\Manager::$engines = $registered;
+
+\Bitrix\Main\Loader::$missing = ['crm'];
+Check::same('без crm — отказ, а не fatal', $setup()->selectEngines(), ['*' => ['ok' => false, 'message' => 'нет модулей ai или crm']]);
+Check::same('и выбор не читается', $setup()->getEngineSelection(), []);
+\Bitrix\Main\Loader::$missing = [];
 
 Check::group('сбой настроек ИИ не обрывает прогон');
 

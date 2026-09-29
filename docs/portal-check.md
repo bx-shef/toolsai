@@ -49,11 +49,15 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
 
 1. Задать внешний адрес → «Проверить и включить» → `engine audio`,
    `engine text` — `registered`; повторно — `unchanged`; `selected audio`,
-   `selected text` — наш движок (если там был чужой — выбрать наш в
-   `/settings/configs/?page=ai` и записать, что стояло).
-2. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
+   `selected text` — FAIL с тем, что выбрано сейчас (записать): прогон в
+   настройки ИИ не пишет.
+2. Настройки модуля → «Движок» → «Выбрать движок модуля» → «Готово», в
+   строке и в `/settings/configs/?page=ai` — `sheftoolsai_audio` и
+   `sheftoolsai_text`; «Проверить и включить» — `selected …` «выбран наш».
+   Не администратором и без `sessid` в ссылке — ничего не меняется.
+3. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
    — две строки, адрес с `?token=`.
-3. `cli/core-api-guard.php` — без FAIL, кроме ожидаемых на этом стенде (записать).
+4. `cli/core-api-guard.php` — без FAIL, кроме ожидаемых на этом стенде (записать).
 
 ## C. Контракт эндпоинта
 

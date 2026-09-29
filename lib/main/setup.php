@@ -66,21 +66,15 @@ final class Setup
 			$report['engine '.$category] = $row;
 		}
 
-		// Выбирать можно только зарегистрированный движок: код движка,
-		// которого нет, CRM ищет без фолбэка — и распознавание встаёт, хотя
-		// с пустой настройкой шло бы на движке по умолчанию.
-		$ready = array_keys(array_filter(
-			$engines,
-			static fn(array $row, string $category): bool => $row['ok'] && $category !== '*',
-			ARRAY_FILTER_USE_BOTH
-		));
-		if($ready !== [])
+		// Выбор движка в настройках ИИ — только показать: писать туда модуль
+		// вправе лишь по кнопке на странице настроек (selectEngines()).
+		if(!isset($engines['*']))
 		{
 			// Настройки ИИ — чужая подсистема и API без теста: её сбой не
 			// должен оборвать прогон до регистрации агента.
 			try
 			{
-				$selected = $this->ensureEngineSelected($ready);
+				$selected = $this->checkEngineSelection();
 			}
 			catch(\Throwable $throwable)
 			{
@@ -239,70 +233,123 @@ final class Setup
 	 * операция не находит движок, хотя наш зарегистрирован, и распознавание
 	 * молча не идёт (docs/00-research.md, гейт 10).
 	 *
-	 * Пусто — выбираем наш. Наш — не трогаем. Чужой — НЕ перезаписываем:
-	 * выбор движка — решение администратора портала (docs/agent-rules.md,
-	 * §5.8); отчёт говорит, где выбрать наш руками.
+	 * Решение владельца (2026-09-29): в настройки ИИ портала модуль пишет
+	 * ТОЛЬКО по явному действию администратора на странице настроек модуля —
+	 * selectEngines(). Установщик и «Проверить и включить» выбор только
+	 * показывают.
+	 *
+	 * @return array<string, string|null> категория => код выбранного движка; null — настройки нет; [] — нет модулей ai или crm
+	 */
+	public function getEngineSelection(): array
+	{
+		if(!static::canSelect())
+		{
+			return [];
+		}
+
+		$result = [];
+		foreach(static::getSelectionSettings() as $category => $code)
+		{
+			$item = (new \Bitrix\AI\Tuning\Manager())->getItem($code);
+			$raw = $item?->getValue();
+			$result[$category] = $item === null ? null : (is_scalar($raw) ? (string)$raw : '');
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Выбран ли наш движок — для отчёта. Ничего не пишет.
+	 *
+	 * @return array<string, array{ok: bool, message: string}>
+	 */
+	public function checkEngineSelection(): array
+	{
+		if(!static::canSelect())
+		{
+			return ['*' => ['ok' => false, 'message' => 'нет модулей ai или crm']];
+		}
+
+		$report = [];
+		foreach($this->getEngineSelection() as $category => $value)
+		{
+			$own = Constants::getEngineCode($category);
+			$report[$category] = match(true)
+			{
+				$value === null => ['ok' => false, 'message' => 'настройка не найдена: группа настроек Копилота не загрузилась'],
+				$value === $own => ['ok' => true, 'message' => 'выбран наш'],
+				default => [
+					'ok' => false,
+					'message' => ($value === '' ? 'не выбран' : 'выбран «'.$value.'»')
+						.' — нажмите «Выбрать движок модуля» на странице настроек модуля',
+				],
+			};
+		}
+
+		return $report;
+	}
+
+	/**
+	 * Выбрать движки модуля в настройках ИИ — действие администратора со
+	 * страницы настроек модуля. Перезаписывает и чужой выбор: это и есть
+	 * явное решение, которого нельзя принимать установщику.
+	 *
+	 * Выбираются только зарегистрированные движки, и audio — только вместе с
+	 * text: код движка, которого нет, CRM ищет без фолбэка, а audio без text
+	 * CRM не видит (ThirdParty::hasQuality()).
 	 *
 	 * Что выбрал модуль, помечается (SYS_selected_<категория>): при удалении
 	 * модуля установщик очищает только такую настройку и только если там всё
 	 * ещё наш код — иначе CRM искал бы удалённый движок.
 	 *
-	 * @param string[] $categories только зарегистрированные движки
-	 * @return array<string, array{ok: bool, message: string}> категория => результат
+	 * @return array<string, array{ok: bool, message: string}>
 	 */
-	public function ensureEngineSelected(array $categories): array
+	public function selectEngines(): array
 	{
-		if(
-			!Loader::includeModule('ai')
-			|| !Loader::includeModule('crm')
-			|| !class_exists(\Bitrix\AI\Tuning\Manager::class)
-			|| !class_exists(\Bitrix\Crm\Integration\AI\EventHandler::class)
-		)
+		if(!static::canSelect())
 		{
 			return ['*' => ['ok' => false, 'message' => 'нет модулей ai или crm']];
 		}
 
-		$settings = [
-			Constants::CATEGORY_AUDIO => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE,
-			Constants::CATEGORY_TEXT => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE,
-		];
+		$registrar = new Registrar();
+		if(!$registrar->isRegistered(Constants::CATEGORY_TEXT))
+		{
+			return ['*' => ['ok' => false, 'message' => 'движки не зарегистрированы — сначала «Проверить и включить»']];
+		}
 
 		$manager = new \Bitrix\AI\Tuning\Manager();
 		$report = [];
 		$changed = false;
 
-		foreach(array_intersect_key($settings, array_flip($categories)) as $category => $code)
+		foreach(static::getSelectionSettings() as $category => $code)
 		{
+			if(!$registrar->isRegistered($category))
+			{
+				$report[$category] = ['ok' => false, 'message' => 'движок не зарегистрирован'];
+				continue;
+			}
+
 			$item = $manager->getItem($code);
 			if($item === null)
 			{
-				$report[$category] = ['ok' => false, 'message' => 'настройка '.$code.' не найдена: группа настроек Копилота не загрузилась'];
+				$report[$category] = ['ok' => false, 'message' => 'настройка '.$code.' не найдена'];
 				continue;
 			}
 
 			$own = Constants::getEngineCode($category);
 			$raw = $item->getValue();
-			$value = is_scalar($raw) ? (string)$raw : '';
+			$before = is_scalar($raw) ? (string)$raw : '';
 
-			if($value === $own)
+			if($before === $own)
 			{
 				$report[$category] = ['ok' => true, 'message' => 'выбран наш'];
-				continue;
-			}
-
-			if($value !== '')
-			{
-				$report[$category] = [
-					'ok' => false,
-					'message' => 'выбран другой движок «'.$value.'» — выберите «'.$own.'» в /settings/configs/?page=ai, если распознавание должно идти через модуль',
-				];
 				continue;
 			}
 
 			$item->setValue($own);
 			Option::set(Constants::MODULE_ID, static::OPTION_SELECTED_PREFIX.$category, 'Y');
 			$changed = true;
-			$report[$category] = ['ok' => true, 'message' => 'был пуст — выбран наш'];
+			$report[$category] = ['ok' => true, 'message' => $before === '' ? 'выбран наш' : 'выбран наш (было «'.$before.'»)'];
 		}
 
 		if($changed)
@@ -311,6 +358,25 @@ final class Setup
 		}
 
 		return $report;
+	}
+
+	private static function canSelect(): bool
+	{
+		return Loader::includeModule('ai')
+			&& Loader::includeModule('crm')
+			&& class_exists(\Bitrix\AI\Tuning\Manager::class)
+			&& class_exists(\Bitrix\Crm\Integration\AI\EventHandler::class);
+	}
+
+	/**
+	 * @return array<string, string> категория => код настройки ИИ
+	 */
+	private static function getSelectionSettings(): array
+	{
+		return [
+			Constants::CATEGORY_AUDIO => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE,
+			Constants::CATEGORY_TEXT => \Bitrix\Crm\Integration\AI\EventHandler::SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE,
+		];
 	}
 
 	/**
