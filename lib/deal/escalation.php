@@ -89,7 +89,15 @@ final class Escalation
 			return false;
 		}
 
-		$todo = new \Bitrix\Crm\Activity\Entity\ToDo(new ItemIdentifier(\CCrmOwnerType::Deal, $dealId));
+		// В crm 26.800 конструктор — (ItemIdentifier, ActivityProvider):
+		// с одним аргументом ArgumentCountError, и дело старшему молча не
+		// ставилось (приёмка 2026-10-02, bx-shef/toolsai#3). В старых
+		// версиях провайдера в конструкторе нет — его не передаём.
+		$owner = new ItemIdentifier(\CCrmOwnerType::Deal, $dealId);
+		$constructor = (new \ReflectionClass(\Bitrix\Crm\Activity\Entity\ToDo::class))->getConstructor();
+		$todo = $constructor !== null && $constructor->getNumberOfRequiredParameters() >= 2
+			? new \Bitrix\Crm\Activity\Entity\ToDo($owner, new \Bitrix\Crm\Activity\Provider\ToDo\ToDo())
+			: new \Bitrix\Crm\Activity\Entity\ToDo($owner);
 		$todo
 			->setDescription($text)
 			->setResponsibleId($responsibleId)

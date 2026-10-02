@@ -6,7 +6,7 @@ $MESS['shef.toolsai_TAB_DEF_NAME'] = 'Движок';
 $MESS['shef.toolsai_TAB_DEF_TITLE'] = 'Свой ИИ-движок для Копилота';
 $MESS['shef.toolsai_TAB_DEF_Engine'] = 'Эндпоинт движка: #ENDPOINT#. Регистрация движков, обход BaaS и [URL=#URL#]расход и остаток[/URL] — на странице «ИИ: расход и остаток».';
 $MESS['shef.toolsai_TAB_DEF_Engine_nourl'] = 'не задан внешний адрес портала';
-$MESS['shef.toolsai_TAB_DEF_Selection'] = 'Движок в настройках ИИ портала — CRM берёт его строго по коду. Распознавание звонков: #AUDIO# (движок модуля — #OWN_AUDIO#). Текст: #TEXT# (движок модуля — #OWN_TEXT#). [URL=#URL#]Выбрать движок модуля[/URL] — запишет движки модуля в /settings/configs/?page=ai, заменив текущий выбор. #RESULT#';
+$MESS['shef.toolsai_TAB_DEF_Selection'] = 'Движок в настройках ИИ портала — CRM берёт его строго по коду. Распознавание звонков: #AUDIO# (движок модуля — #OWN_AUDIO#). Текст: #TEXT# (движок модуля — #OWN_TEXT#). <a href="#URL#">Выбрать движок модуля</a> — запишет движки модуля в /settings/configs/?page=ai, заменив текущий выбор. #RESULT#';
 $MESS['shef.toolsai_TAB_DEF_Selection_none'] = 'настройка не найдена';
 $MESS['shef.toolsai_TAB_DEF_Selection_empty'] = 'не выбран';
 $MESS['shef.toolsai_TAB_DEF_Selection_ok'] = 'Готово: выбраны движки модуля.';

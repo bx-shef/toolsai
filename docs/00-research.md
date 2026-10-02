@@ -55,7 +55,7 @@ TranscribeCallRecording::launch()  ->  Engine::completions()
 | 5 | Направление звонка | `callchannelsettings.php:17,86` | по умолчанию только входящие |
 | 6 | Пороги аудио | `suitableaudioschecker.php:17-20` | 60 КБ…25 МБ, 10 сек…60 мин, расширение из белого списка |
 | 7 | Только телефония | `operation/transcribecallrecording.php:66-81` | нужен `PROVIDER_ID = VOXIMPLANT_CALL` **и** `ORIGIN_ID` с префиксом `VI_` |
-| 8 | Соглашение на коробке | `abstractoperation.php:246` | `AI_BOX_AGREEMENT` принят **ответственным за цель**, не администратором |
+| 8 | Соглашение на коробке | `abstractoperation.php:246` | `AI_BOX_AGREEMENT` принят **ответственным за цель**, не администратором. На ai 26.1100 — всегда `true` (`ai/lib/Agreement.php:17`), гейт не мешает |
 | 9 | Движок категории | `abstractoperation.php:332-354` | нет движка `audio` — `critical` в лог и выход |
 | 10 | Движок выбран по коду | `abstractoperation.php:684-697` | берётся строго код из настройки ИИ, `Engine::getByCode` без фолбэка |
 | 11 | audio требует text | `ai/lib/Engine/ThirdParty.php:297-310` | третьесторонний audio-движок невидим, пока нет ни одного text-движка |
