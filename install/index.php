@@ -235,6 +235,10 @@ Class shef_toolsai
 		)
 		{
 			\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(false);
+			// Снято — пометка больше ничего не значит. С savedata = Y
+			// настройки переживают удаление, и устаревшая пометка сняла бы
+			// после переустановки обход, включённый уже не модулем.
+			Config\Option::set($this->MODULE_ID, self::OPTION_BAAS_SET, 'N');
 		}
 		
 		$this->unselectEngines();

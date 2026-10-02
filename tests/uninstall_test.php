@@ -252,6 +252,7 @@ $module = $given();
 Option::set('shef.toolsai', 'SYS_baasset', 'Y');
 $module->UnInstallEngine();
 Check::same('обход BaaS включали мы — снимается', \Bitrix\Crm\Integration\AI\BaasManager::$ignored, false);
+Check::same('и пометка снята: с savedata = Y она не сняла бы чужой обход после переустановки', Option::get('shef.toolsai', 'SYS_baasset'), 'N');
 
 Check::group('выбор движка в настройках ИИ');
 
