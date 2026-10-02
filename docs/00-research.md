@@ -55,7 +55,7 @@ TranscribeCallRecording::launch()  ->  Engine::completions()
 | 5 | Направление звонка | `callchannelsettings.php:17,86` | по умолчанию только входящие |
 | 6 | Пороги аудио | `suitableaudioschecker.php:17-20` | 60 КБ…25 МБ, 10 сек…60 мин, расширение из белого списка |
 | 7 | Только телефония | `operation/transcribecallrecording.php:66-81` | нужен `PROVIDER_ID = VOXIMPLANT_CALL` **и** `ORIGIN_ID` с префиксом `VI_` |
-| 8 | Соглашение на коробке | `abstractoperation.php:246` | `AI_BOX_AGREEMENT` принят **ответственным за цель**, не администратором |
+| 8 | Соглашение на коробке | `abstractoperation.php:246` | `AI_BOX_AGREEMENT` принят **ответственным за цель**, не администратором. На ai 26.1100 — всегда `true` (`ai/lib/Agreement.php:17`), гейт не мешает |
 | 9 | Движок категории | `abstractoperation.php:332-354` | нет движка `audio` — `critical` в лог и выход |
 | 10 | Движок выбран по коду | `abstractoperation.php:684-697` | берётся строго код из настройки ИИ, `Engine::getByCode` без фолбэка |
 | 11 | audio требует text | `ai/lib/Engine/ThirdParty.php:297-310` | третьесторонний audio-движок невидим, пока нет ни одного text-движка |
@@ -393,7 +393,7 @@ public ?string $reasonIfIsClientFalse = null;
 |---|---|
 | `hasPackage()` блокирует автозапуск | `BaasManager::setIgnored(true)` — штатный метод (`baasmanager.php:104-121`) |
 | Нет движка `audio`/`text` | свой third-party движок через `Manager::register()` |
-| `ai.engine.register` недоступен по REST | регистрируем из PHP: установщик и кнопка «Проверить и включить» (`\Shef\ToolsAi\Main\Setup`) |
+| `ai.engine.register` недоступен по REST | регистрируем из PHP: кнопка «Проверить и включить» (`\Shef\ToolsAi\Main\Setup`) |
 | audio-движок виден только при text-движке (гейт 11) | `audio` и `text` регистрируются одним прогоном; отчёт не считает audio готовым без text |
 | CRM берёт движок строго по коду из настройки ИИ (гейт 10) | «Проверить и включить» выбор показывает; записать — ссылка «Выбрать движок модуля» на странице настроек модуля |
 | Ядро шлёт запрос движку без своих заголовков | секрет — токеном в `completions_url`, колбэк — только на хост портала |

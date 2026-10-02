@@ -33,8 +33,8 @@ $config = new Config();
  * CRM берёт движок строго по коду из настроек ИИ портала (гейт 10 в
  * docs/00-research.md). Писать туда модуль вправе только по явному
  * действию администратора отсюда, со страницы настроек модуля (решение
- * владельца 2026-09-29): установщик и «Проверить и включить» выбор только
- * показывают.
+ * владельца 2026-09-29): установщик и «Проверить и включить» туда не
+ * пишут.
  *
  * Действие — GET со sessid (options.php — каноническая копия из
  * shef.options и не правится, своей формы на странице нет), только
@@ -113,7 +113,9 @@ $options->addTab(
 					'#TEXT#' => $showSelection($selection[Constants::CATEGORY_TEXT] ?? null),
 					'#OWN_AUDIO#' => Constants::getEngineCode(Constants::CATEGORY_AUDIO),
 					'#OWN_TEXT#' => Constants::getEngineCode(Constants::CATEGORY_TEXT),
-					'#URL#' => '/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get(),
+					// Ссылка HTML, а не BB [URL]: тот открывает новую вкладку, и
+					// исходная страница остаётся с «не выбран» (bx-shef/toolsai#3).
+					'#URL#' => htmlspecialcharsbx('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get()),
 					'#RESULT#' => $selectResult === null ? '' : Loc::getMessage($options->moduleId.'_TAB_DEF_Selection_'.$selectResult),
 				]))
 				->setType(

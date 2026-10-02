@@ -16,3 +16,8 @@
 /build.sh		export-ignore
 /docker/		export-ignore
 /tests/			export-ignore
+
+# Скрипты — всегда LF: при клоне на Windows с core.autocrlf=true sync.sh с
+# CRLF не запускается (код 127), и skills_test краснеет; MANIFEST считает
+# sha256 по LF. Найдено на приёмке 2026-10-02 (bx-shef/toolsai#3).
+*.sh		text eol=lf

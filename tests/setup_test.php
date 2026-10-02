@@ -13,6 +13,9 @@
  * * движок с тем же адресом — unchanged, с другим — unregister + register
  *   (пара код+категория уникальна), нового — registered;
  * * обход BaaS: уже включён — не трогаем; выключен — включаем;
+ * * prepare() (установщик) — только токен и заглушки: обход BaaS, движки
+ *   и агент включает run() по кнопке (решение владельца);
+ * * обход BaaS, включённый модулем, помечается для удаления (SYS_baasset);
  * * агент регистрируется один раз;
  * * выбор движка в настройках ИИ портала run() только показывает, пишет
  *   его selectEngines() — кнопка на странице настроек модуля (решение
@@ -196,11 +199,26 @@ $portal = sys_get_temp_dir().'/shef-toolsai-setup-'.getmypid();
 mkdir($portal.'/www/bitrix/admin', 0777, true);
 mkdir($portal.'/www/bitrix/tools', 0777, true);
 
-$setup = static fn(): Setup => new Setup(new Config());
+// Резолвер-заглушка: тест не ходит в DNS.
+$setup = static fn(): Setup => new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']);
+
+Check::group('подготовка (установщик) портал не меняет');
+
+$report = $setup()->prepare($portal.'/www', $root);
+Check::same('только токен и заглушки', array_keys($report), ['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE]);
+Check::same('токен и заглушки на месте', array_column($report, 'ok'), [true, true, true]);
+Check::same(
+	'обход BaaS не тронут, в ядро ничего не ушло, агента нет',
+	[\Bitrix\Crm\Integration\AI\BaasManager::$set, \Bitrix\AI\ThirdParty\Manager::$calls, \CAgent::$agents, Option::get('shef.toolsai', 'SYS_baasset')],
+	[0, [], [], '']
+);
+$prepared = Option::get('shef.toolsai', 'SYS_token');
 
 Check::group('без внешнего адреса');
 
 $report = $setup()->run($portal.'/www', $root);
+Check::same('включение не меняет токен подготовки', Option::get('shef.toolsai', 'SYS_token'), $prepared);
+Check::same('обход BaaS включил модуль — помечено для удаления', Option::get('shef.toolsai', 'SYS_baasset'), 'Y');
 $token = Option::get('shef.toolsai', 'SYS_token');
 
 Check::same('токен сгенерирован', 1 === preg_match('/^[a-f0-9]{64}$/', (string)$token), true);
@@ -249,6 +267,10 @@ Check::same('движки — unchanged', [$report['engine audio']['message'], $
 Check::same('в ядро ничего не ушло', \Bitrix\AI\ThirdParty\Manager::$calls, []);
 Check::same('настройки ИИ по-прежнему не тронуты', \Bitrix\AI\Tuning\Manager::$saved, 0);
 Check::same('BaaS уже включён — не трогаем', \Bitrix\Crm\Integration\AI\BaasManager::$set, 1);
+
+Option::set('shef.toolsai', 'SYS_baasset', '');
+$setup()->ensureBaasIgnored();
+Check::same('включён не нами — пометки нет, удаление его не снимет', Option::get('shef.toolsai', 'SYS_baasset'), '');
 Check::same('агент один', \CAgent::$agents, [Setup::AGENT_NAME]);
 
 Check::group('смена адреса и ротация токена');
@@ -343,6 +365,30 @@ $report = $setup()->run($portal.'/www', $root);
 Check::same('отчёт о сбое', [$report['selected *']['ok'] ?? null, str_contains($report['selected *']['message'] ?? '', 'не прочитались')], [false, true]);
 Check::same('агент всё равно зарегистрирован', \CAgent::$agents, [Setup::AGENT_NAME]);
 \Bitrix\AI\Tuning\Manager::$throw = false;
+
+Check::group('внешний адрес без схемы — не «не задан»');
+
+Option::set('shef.toolsai', 'DEF_publicurl', 'crm.example.by');
+$report = $setup()->ensureEngines();
+Check::same('отчёт называет адрес и формат', [$report['*']['ok'], str_contains($report['*']['message'], 'внешний адрес в настройках модуля «crm.example.by» не разобран')], [false, true]);
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
+
+Check::group('отказ регистрации на внутреннем адресе — подсказка');
+
+\Bitrix\AI\ThirdParty\Manager::$engines = [];
+\Bitrix\AI\ThirdParty\Manager::$fail = ['sheftoolsai_audio', 'sheftoolsai_text'];
+$report = (new Setup(new Config(), static fn(string $host): array => ['172.18.0.5']))->ensureEngines();
+Check::same(
+	'адрес ведёт в приватную сеть — причина в отчёте',
+	[$report['text']['ok'], str_contains($report['text']['message'], 'внутреннюю сеть (172.18.0.5)')],
+	[false, true]
+);
+$report = (new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']))->ensureEngines();
+Check::same('публичный адрес — без подсказки', str_contains($report['text']['message'], 'внутреннюю сеть'), false);
+\Bitrix\AI\ThirdParty\Manager::$fail = [];
+$resolved = 0;
+$report = (new Setup(new Config(), static function(string $host) use (&$resolved): array { $resolved++; return ['172.18.0.5']; }))->ensureEngines();
+Check::same('успех — без подсказки и без DNS: решает ядро', [$report['text']['ok'], $report['text']['message'], $resolved], [true, 'registered', 0]);
 
 Check::group('audio без text не виден CRM');
 

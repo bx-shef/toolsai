@@ -14,7 +14,8 @@ use Shef\ToolsAi\Security\Token;
  * может сброситься при обновлении crm, а адрес движка — устареть при смене
  * внешнего адреса портала.
  *
- * Зовут: установщик, кнопка на странице расхода, cli/setup.php.
+ * run() зовут кнопка на странице расхода и cli/setup.php; установщик —
+ * только prepare().
  */
 final class Setup
 {
@@ -23,19 +24,31 @@ final class Setup
 
 	/** Флажок «выбор движка в настройках ИИ сделал модуль» — повторён в install/index.php. */
 	public const OPTION_SELECTED_PREFIX = 'SYS_selected_';
+	/** Обход BaaS включил модуль — снять при удалении (install/index.php, литералом). */
+	public const OPTION_BAAS_SET = 'SYS_baasset';
 	/** Что стояло в настройке ИИ до выбора модулем — вернуть при удалении. */
 	public const OPTION_PREVIOUS_PREFIX = 'SYS_previous_';
 
-	public function __construct(private readonly Config $config)
+	/**
+	 * @param \Closure(string): (string[]|false)|null $resolve хост => IP; для тестов
+	 */
+	public function __construct(
+		private readonly Config $config,
+		private readonly ?\Closure $resolve = null
+	)
 	{
 	}
 
 	/**
-	 * Все шаги подряд.
+	 * Подготовка — то, что делает установщик: токен и заглушки. Портал
+	 * этим не меняется: ни обхода BaaS, ни движков, ни агента.
+	 *
+	 * Решение владельца (2026-10-02): установка и включение раздельны —
+	 * включает администратор кнопкой «Проверить и включить» (run()).
 	 *
 	 * @return array<string, array{ok: bool, message: string}>
 	 */
-	public function run(string $documentRoot, string $moduleDir): array
+	public function prepare(string $documentRoot, string $moduleDir): array
 	{
 		$report = [];
 
@@ -50,6 +63,20 @@ final class Setup
 				'message' => $ok ? 'на месте' : 'не записана: чужой файл на этом месте или нет прав на каталог',
 			];
 		}
+
+		return $report;
+	}
+
+	/**
+	 * Включение — все шаги подряд: подготовка, обход BaaS, движки, агент и
+	 * отчёт о выборе движка. Зовут кнопка «Проверить и включить» и
+	 * cli/setup.php, не установщик.
+	 *
+	 * @return array<string, array{ok: bool, message: string}>
+	 */
+	public function run(string $documentRoot, string $moduleDir): array
+	{
+		$report = $this->prepare($documentRoot, $moduleDir);
 
 		$baas = $this->ensureBaasIgnored();
 		$report['crm::AI_IGNORE_BAAS'] = [
@@ -173,8 +200,14 @@ final class Setup
 		}
 
 		\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(true);
+		$ignored = \Bitrix\Crm\Integration\AI\BaasManager::isIgnored();
+		if($ignored)
+		{
+			// Включили мы — значит, при удалении и снимаем мы.
+			Option::set(Constants::MODULE_ID, static::OPTION_BAAS_SET, 'Y');
+		}
 
-		return \Bitrix\Crm\Integration\AI\BaasManager::isIgnored();
+		return $ignored;
 	}
 
 	/**
@@ -185,6 +218,16 @@ final class Setup
 	public function ensureEngines(): array
 	{
 		$url = $this->config->getCompletionsUrl();
+		$rejected = $this->config->getRejectedPublicUrl();
+		if($url === '' && $rejected !== '')
+		{
+			return [
+				'*' => [
+					'ok' => false,
+					'message' => $rejected.' не разобран: нужен адрес со схемой, без параметров и пробелов, например https://crm.example.by',
+				],
+			];
+		}
 		if($url === '')
 		{
 			return [
@@ -215,6 +258,14 @@ final class Setup
 				: ['ok' => false, 'message' => implode('; ', $result->getErrorMessages())];
 		}
 
+		// DNS — только при отказе: успешный прогон не ждёт резолвера.
+		$failed = array_keys(array_filter($report, static fn(array $row): bool => !$row['ok']));
+		$hint = $failed !== [] ? $this->getPrivateHostHint($url) : '';
+		foreach($hint !== '' ? $failed : [] as $category)
+		{
+			$report[$category]['message'] .= ' — '.$hint;
+		}
+
 		if($report[Constants::CATEGORY_AUDIO]['ok'] && !$report[Constants::CATEGORY_TEXT]['ok'])
 		{
 			$report[Constants::CATEGORY_AUDIO] = [
@@ -224,6 +275,44 @@ final class Setup
 		}
 
 		return $report;
+	}
+
+	/**
+	 * Подсказка к отказу в регистрации: адрес движка ведёт во внутреннюю сеть.
+	 *
+	 * Ядро ai ходит на completions_url с HttpClient::setPrivateIp(false) — и
+	 * при регистрации (ThirdPartyRegisterService.php:159), и на каждое
+	 * задание (ThirdParty.php:220): адрес обязан резолвиться в публичный IP.
+	 * Иначе ядро отвечает общим «должен быть валидный URL и отвечать 200», и
+	 * причину не видно (приёмка 2026-10-02, bx-shef/toolsai#3). Только
+	 * подсказка, не запрет: решает ядро, у него своя проверка.
+	 */
+	private function getPrivateHostHint(string $url): string
+	{
+		$host = (string)parse_url($url, PHP_URL_HOST);
+		if($host === '')
+		{
+			return '';
+		}
+
+		$ips = filter_var($host, FILTER_VALIDATE_IP) !== false
+			? [$host]
+			: ($this->resolve !== null ? ($this->resolve)($host) : @gethostbynamel($host));
+		if(!is_array($ips) || $ips === [])
+		{
+			return '';
+		}
+
+		$private = array_filter(
+			$ips,
+			static fn(string $ip): bool => filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false
+		);
+		if($private === [])
+		{
+			return '';
+		}
+
+		return 'адрес '.$host.' ведёт во внутреннюю сеть ('.implode(', ', $private).'): ядро ai шлёт запросы движку только на публичные адреса (HttpClient::setPrivateIp(false)), нужен внешний адрес, который с сервера резолвится в публичный IP';
 	}
 
 	/**

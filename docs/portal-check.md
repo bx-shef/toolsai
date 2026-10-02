@@ -37,8 +37,9 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
 
 1. Без `shef.problems` установщик отказывает формой с текстом, а не белой
    страницей.
-2. С линейкой — ставится; в отчёте на экране: ✔ `token`, обе `page …`,
-   `crm::AI_IGNORE_BAAS`, `agent`; ✖ `engine *` «не задан внешний адрес».
+2. С линейкой — ставится; в отчёте на экране: ✔ `token`, обе `page …` —
+   и только они. Портал не изменён: `crm::AI_IGNORE_BAAS` прежний, движков
+   и агента нет — их включает «Проверить и включить» (шаг B).
 3. `/bitrix/tools/shef_toolsai_completions.php` и
    `/bitrix/admin/shef_toolsai_quota.php` — заглушки в одну строку с путём в
    каталог модуля.
