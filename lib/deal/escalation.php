@@ -89,7 +89,10 @@ final class Escalation
 			return false;
 		}
 
-		$todo = new \Bitrix\Crm\Activity\Entity\ToDo(new ItemIdentifier(\CCrmOwnerType::Deal, $dealId));
+		$todo = new \Bitrix\Crm\Activity\Entity\ToDo(
+			new ItemIdentifier(\CCrmOwnerType::Deal, $dealId),
+			new \Bitrix\Crm\Activity\Provider\ToDo\ToDo()
+		);
 		$todo
 			->setDescription($text)
 			->setResponsibleId($responsibleId)
