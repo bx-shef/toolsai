@@ -14,7 +14,8 @@ use Shef\ToolsAi\Security\Token;
  * может сброситься при обновлении crm, а адрес движка — устареть при смене
  * внешнего адреса портала.
  *
- * Зовут: установщик, кнопка на странице расхода, cli/setup.php.
+ * run() зовут кнопка на странице расхода и cli/setup.php; установщик —
+ * только prepare().
  */
 final class Setup
 {
@@ -23,6 +24,8 @@ final class Setup
 
 	/** Флажок «выбор движка в настройках ИИ сделал модуль» — повторён в install/index.php. */
 	public const OPTION_SELECTED_PREFIX = 'SYS_selected_';
+	/** Обход BaaS включил модуль — снять при удалении (install/index.php, литералом). */
+	public const OPTION_BAAS_SET = 'SYS_baasset';
 	/** Что стояло в настройке ИИ до выбора модулем — вернуть при удалении. */
 	public const OPTION_PREVIOUS_PREFIX = 'SYS_previous_';
 
@@ -31,11 +34,15 @@ final class Setup
 	}
 
 	/**
-	 * Все шаги подряд.
+	 * Подготовка — то, что делает установщик: токен и заглушки. Портал
+	 * этим не меняется: ни обхода BaaS, ни движков, ни агента.
+	 *
+	 * Решение владельца (2026-10-02): установка и включение раздельны —
+	 * включает администратор кнопкой «Проверить и включить» (run()).
 	 *
 	 * @return array<string, array{ok: bool, message: string}>
 	 */
-	public function run(string $documentRoot, string $moduleDir): array
+	public function prepare(string $documentRoot, string $moduleDir): array
 	{
 		$report = [];
 
@@ -50,6 +57,20 @@ final class Setup
 				'message' => $ok ? 'на месте' : 'не записана: чужой файл на этом месте или нет прав на каталог',
 			];
 		}
+
+		return $report;
+	}
+
+	/**
+	 * Включение — все шаги подряд: подготовка, обход BaaS, движки, агент и
+	 * отчёт о выборе движка. Зовут кнопка «Проверить и включить» и
+	 * cli/setup.php, не установщик.
+	 *
+	 * @return array<string, array{ok: bool, message: string}>
+	 */
+	public function run(string $documentRoot, string $moduleDir): array
+	{
+		$report = $this->prepare($documentRoot, $moduleDir);
 
 		$baas = $this->ensureBaasIgnored();
 		$report['crm::AI_IGNORE_BAAS'] = [
@@ -173,8 +194,14 @@ final class Setup
 		}
 
 		\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(true);
+		$ignored = \Bitrix\Crm\Integration\AI\BaasManager::isIgnored();
+		if($ignored)
+		{
+			// Включили мы — значит, при удалении и снимаем мы.
+			Option::set(Constants::MODULE_ID, static::OPTION_BAAS_SET, 'Y');
+		}
 
-		return \Bitrix\Crm\Integration\AI\BaasManager::isIgnored();
+		return $ignored;
 	}
 
 	/**

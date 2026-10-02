@@ -123,8 +123,10 @@ HTTP-статус, текст из таймлайна.
    первых — проверь это отдельно, поставив его **первым** (ожидается
    форма с ошибкой про `shef.options`, а не белая страница).
 3. Сохрани отчёт установки `shef.toolsai` (он на экране после установки):
-   ожидаемо ✔ `token`, обе `page …`, `crm::AI_IGNORE_BAAS`, `agent`, и ✖
-   `engine *` «не задан внешний адрес».
+   ожидаемо ✔ `token` и обе `page …` — и больше ничего: установка портал
+   не меняет (решение владельца). Проверь это: `crm::AI_IGNORE_BAAS` в
+   `b_option` прежний, движков `sheftoolsai%` в `b_ai_engine` нет, агента
+   `DealHealthAgent` в `b_agent` нет. Всё это включает этап 3.
 4. Заглушки на месте и ведут в модуль:
    `cat docker/www/bitrix/tools/shef_toolsai_completions.php
    docker/www/bitrix/admin/shef_toolsai_quota.php`.

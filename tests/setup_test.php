@@ -13,6 +13,9 @@
  * * движок с тем же адресом — unchanged, с другим — unregister + register
  *   (пара код+категория уникальна), нового — registered;
  * * обход BaaS: уже включён — не трогаем; выключен — включаем;
+ * * prepare() (установщик) — только токен и заглушки: обход BaaS, движки
+ *   и агент включает run() по кнопке (решение владельца);
+ * * обход BaaS, включённый модулем, помечается для удаления (SYS_baasset);
  * * агент регистрируется один раз;
  * * выбор движка в настройках ИИ портала run() только показывает, пишет
  *   его selectEngines() — кнопка на странице настроек модуля (решение
@@ -198,9 +201,23 @@ mkdir($portal.'/www/bitrix/tools', 0777, true);
 
 $setup = static fn(): Setup => new Setup(new Config());
 
+Check::group('подготовка (установщик) портал не меняет');
+
+$report = $setup()->prepare($portal.'/www', $root);
+Check::same('только токен и заглушки', array_keys($report), ['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE]);
+Check::same('токен и заглушки на месте', array_column($report, 'ok'), [true, true, true]);
+Check::same(
+	'обход BaaS не тронут, в ядро ничего не ушло, агента нет',
+	[\Bitrix\Crm\Integration\AI\BaasManager::$set, \Bitrix\AI\ThirdParty\Manager::$calls, \CAgent::$agents, Option::get('shef.toolsai', 'SYS_baasset')],
+	[0, [], [], '']
+);
+$prepared = Option::get('shef.toolsai', 'SYS_token');
+
 Check::group('без внешнего адреса');
 
 $report = $setup()->run($portal.'/www', $root);
+Check::same('включение не меняет токен подготовки', Option::get('shef.toolsai', 'SYS_token'), $prepared);
+Check::same('обход BaaS включил модуль — помечено для удаления', Option::get('shef.toolsai', 'SYS_baasset'), 'Y');
 $token = Option::get('shef.toolsai', 'SYS_token');
 
 Check::same('токен сгенерирован', 1 === preg_match('/^[a-f0-9]{64}$/', (string)$token), true);
@@ -249,6 +266,10 @@ Check::same('движки — unchanged', [$report['engine audio']['message'], $
 Check::same('в ядро ничего не ушло', \Bitrix\AI\ThirdParty\Manager::$calls, []);
 Check::same('настройки ИИ по-прежнему не тронуты', \Bitrix\AI\Tuning\Manager::$saved, 0);
 Check::same('BaaS уже включён — не трогаем', \Bitrix\Crm\Integration\AI\BaasManager::$set, 1);
+
+Option::set('shef.toolsai', 'SYS_baasset', '');
+$setup()->ensureBaasIgnored();
+Check::same('включён не нами — пометки нет, удаление его не снимет', Option::get('shef.toolsai', 'SYS_baasset'), '');
 Check::same('агент один', \CAgent::$agents, [Setup::AGENT_NAME]);
 
 Check::group('смена адреса и ротация токена');

@@ -24,9 +24,9 @@ Loc::loadMessages(__FILE__);
  *   1) таблицы расхода и проверок сделок — Битрикс для своего движка не
  *      считает ничего;
  *   2) заглушки эндпоинта и страницы расхода — пишутся, а не копируются;
- *   3) Main\Setup: токен, обход BaaS, регистрация движков, агент. Шаги
- *      идемпотентны: их же повторяет кнопка «Проверить и включить» после
- *      обновлений платформы.
+ *   3) Main\Setup::prepare(): токен. Портал установка не меняет — обход
+ *      BaaS, движки и агент включает администратор кнопкой «Проверить и
+ *      включить» (Setup::run(), решение владельца 2026-10-02).
  *
  * На классы модуля в установщике автозагрузка не рассчитана: всё, что
  * нужно ДО регистрации модуля, подключается явным require_once.
@@ -175,13 +175,10 @@ Class shef_toolsai
 
 	// region Движки, BaaS, агент ////
 	/**
-	 * Шаги Main\Setup: токен, заглушки, обход BaaS, движки, агент.
-	 *
-	 * Регистрация движка делает GET на эндпоинт, поэтому идёт ПОСЛЕ
-	 * InstallFiles(): заглушка эндпоинта к этому моменту уже лежит. Внешний
-	 * адрес портала при чистой установке обычно не задан — тогда движки не
-	 * регистрируются, и отчёт это говорит: регистрируют их кнопкой на
-	 * странице расхода после настройки.
+	 * Подготовка (Main\Setup::prepare()): токен и заглушки. Обход BaaS,
+	 * движки и агент установщик НЕ включает — решение владельца
+	 * (2026-10-02): установка и включение раздельны, включает
+	 * администратор кнопкой «Проверить и включить» на странице расхода.
 	 */
 	public function InstallEngine(): bool
 	{
@@ -189,20 +186,11 @@ Class shef_toolsai
 		{
 			\Bitrix\Main\Loader::includeModule($this->MODULE_ID);
 			
-			$wasIgnored = \Bitrix\Main\Loader::includeModule('crm')
-				&& class_exists(\Bitrix\Crm\Integration\AI\BaasManager::class)
-				&& \Bitrix\Crm\Integration\AI\BaasManager::isIgnored();
-			
 			$setup = new \Shef\ToolsAi\Main\Setup(new \Shef\ToolsAi\Config());
-			$this->setupReport = $setup->run(
+			$this->setupReport = $setup->prepare(
 				(string)Application::getDocumentRoot(),
 				$this->getModuleDir()
 			);
-			
-			if(!$wasIgnored && ($this->setupReport['crm::AI_IGNORE_BAAS']['ok'] ?? false))
-			{
-				Config\Option::set($this->MODULE_ID, self::OPTION_BAAS_SET, 'Y');
-			}
 		}
 		catch(\Throwable $throwable)
 		{
@@ -247,6 +235,10 @@ Class shef_toolsai
 		)
 		{
 			\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(false);
+			// Снято — пометка больше ничего не значит. С savedata = Y
+			// настройки переживают удаление, и устаревшая пометка сняла бы
+			// после переустановки обход, включённый уже не модулем.
+			Config\Option::set($this->MODULE_ID, self::OPTION_BAAS_SET, 'N');
 		}
 		
 		$this->unselectEngines();
