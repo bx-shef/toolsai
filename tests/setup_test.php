@@ -199,7 +199,8 @@ $portal = sys_get_temp_dir().'/shef-toolsai-setup-'.getmypid();
 mkdir($portal.'/www/bitrix/admin', 0777, true);
 mkdir($portal.'/www/bitrix/tools', 0777, true);
 
-$setup = static fn(): Setup => new Setup(new Config());
+// Резолвер-заглушка: тест не ходит в DNS.
+$setup = static fn(): Setup => new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']);
 
 Check::group('подготовка (установщик) портал не меняет');
 
@@ -369,7 +370,7 @@ Check::group('внешний адрес без схемы — не «не зад
 
 Option::set('shef.toolsai', 'DEF_publicurl', 'crm.example.by');
 $report = $setup()->ensureEngines();
-Check::same('отчёт называет адрес и формат', [$report['*']['ok'], str_contains($report['*']['message'], '«crm.example.by» не разобран')], [false, true]);
+Check::same('отчёт называет адрес и формат', [$report['*']['ok'], str_contains($report['*']['message'], 'внешний адрес в настройках модуля «crm.example.by» не разобран')], [false, true]);
 Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
 
 Check::group('отказ регистрации на внутреннем адресе — подсказка');
@@ -385,8 +386,9 @@ Check::same(
 $report = (new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']))->ensureEngines();
 Check::same('публичный адрес — без подсказки', str_contains($report['text']['message'], 'внутреннюю сеть'), false);
 \Bitrix\AI\ThirdParty\Manager::$fail = [];
-$report = (new Setup(new Config(), static fn(string $host): array => ['172.18.0.5']))->ensureEngines();
-Check::same('успех — без подсказки: решает ядро', [$report['text']['ok'], $report['text']['message']], [true, 'registered']);
+$resolved = 0;
+$report = (new Setup(new Config(), static function(string $host) use (&$resolved): array { $resolved++; return ['172.18.0.5']; }))->ensureEngines();
+Check::same('успех — без подсказки и без DNS: решает ядро', [$report['text']['ok'], $report['text']['message'], $resolved], [true, 'registered', 0]);
 
 Check::group('audio без text не виден CRM');
 

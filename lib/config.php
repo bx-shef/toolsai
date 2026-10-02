@@ -69,16 +69,21 @@ class Config
 
 	/**
 	 * Внешний адрес задан, но не разобрался (например, без схемы:
-	 * «crm.example.by»). Пусто — адрес не задан или в порядке. Нужен, чтобы
-	 * отчёт не говорил «не задан», когда он задан с ошибкой.
+	 * «crm.example.by»): «откуда «значение»». Пусто — адрес не задан или в
+	 * порядке. Нужен, чтобы отчёт не говорил «не задан», когда он задан с
+	 * ошибкой, и называл настройку, где её искать.
 	 */
 	public function getRejectedPublicUrl(): string
 	{
-		foreach([$this->get('DEF_publicurl'), ($this->reader)('ai', 'public_url')] as $raw)
+		$sources = [
+			'внешний адрес в настройках модуля' => $this->get('DEF_publicurl'),
+			'ai::public_url' => ($this->reader)('ai', 'public_url'),
+		];
+		foreach($sources as $source => $raw)
 		{
 			if(is_string($raw) && trim($raw) !== '' && OptionParser::url($raw) === '')
 			{
-				return trim($raw);
+				return $source.' «'.trim($raw).'»';
 			}
 			if(is_string($raw) && OptionParser::url($raw) !== '')
 			{

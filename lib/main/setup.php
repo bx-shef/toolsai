@@ -224,7 +224,7 @@ final class Setup
 			return [
 				'*' => [
 					'ok' => false,
-					'message' => 'внешний адрес «'.$rejected.'» не разобран: нужен вид https://crm.example.by — со схемой, без пути',
+					'message' => $rejected.' не разобран: нужен адрес со схемой, без параметров и пробелов, например https://crm.example.by',
 				],
 			];
 		}
@@ -258,13 +258,12 @@ final class Setup
 				: ['ok' => false, 'message' => implode('; ', $result->getErrorMessages())];
 		}
 
-		$hint = $this->getPrivateHostHint($url);
-		foreach($report as $category => $row)
+		// DNS — только при отказе: успешный прогон не ждёт резолвера.
+		$failed = array_keys(array_filter($report, static fn(array $row): bool => !$row['ok']));
+		$hint = $failed !== [] ? $this->getPrivateHostHint($url) : '';
+		foreach($hint !== '' ? $failed : [] as $category)
 		{
-			if(!$row['ok'] && $hint !== '')
-			{
-				$report[$category]['message'] .= ' — '.$hint;
-			}
+			$report[$category]['message'] .= ' — '.$hint;
 		}
 
 		if($report[Constants::CATEGORY_AUDIO]['ok'] && !$report[Constants::CATEGORY_TEXT]['ok'])
