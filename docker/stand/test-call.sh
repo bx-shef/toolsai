@@ -57,7 +57,8 @@ RECORD="$(mktemp --suffix=.mp3)"
 ffmpeg -loglevel error -y -f lavfi -i 'sine=frequency=440:duration=20' -ac 1 -b:a 128k "$RECORD"
 BODY="$(mktemp)"
 {
-	printf 'CALL_ID=%s&FILENAME=stand-call.mp3&FILE_CONTENT=' "$CALL_ID"
+	# Имя уникальное: второй attachRecord с тем же именем — «Файл с таким именем уже есть».
+	printf 'CALL_ID=%s&FILENAME=stand-call-%s.mp3&FILE_CONTENT=' "$CALL_ID" "$CALL_ID"
 	base64 -w0 "$RECORD" | php -r 'echo rawurlencode(stream_get_contents(STDIN));'
 } > "$BODY"
 FILE_ID="$(curl -sS -X POST "${HOOK}telephony.externalCall.attachRecord.json" --data-binary "@$BODY" -H 'Content-Type: application/x-www-form-urlencoded' | json result.FILE_ID)"

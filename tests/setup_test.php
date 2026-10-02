@@ -390,6 +390,21 @@ $resolved = 0;
 $report = (new Setup(new Config(), static function(string $host) use (&$resolved): array { $resolved++; return ['172.18.0.5']; }))->ensureEngines();
 Check::same('успех — без подсказки и без DNS: решает ядро', [$report['text']['ok'], $report['text']['message'], $resolved], [true, 'registered', 0]);
 
+Check::group('на месте заглушки эндпоинта чужой файл — движки не регистрируются');
+
+$endpointFile = $portal.'/www'.Constants::ENDPOINT_FILE;
+$ownEndpoint = (string)file_get_contents($endpointFile);
+file_put_contents($endpointFile, '<?php // свой эндпоинт проекта');
+\Bitrix\AI\ThirdParty\Manager::$engines = [];
+\Bitrix\AI\ThirdParty\Manager::$calls = [];
+$report = $setup()->run($portal.'/www', $root);
+Check::same(
+	'чужой файл не тронут, в ядро ничего не ушло, отчёт говорит почему',
+	[(string)file_get_contents($endpointFile), \Bitrix\AI\ThirdParty\Manager::$calls, $report['engine *']['ok'], str_contains($report['engine *']['message'], 'заглушка эндпоинта не записана')],
+	['<?php // свой эндпоинт проекта', [], false, true]
+);
+file_put_contents($endpointFile, $ownEndpoint);
+
 Check::group('audio без text не виден CRM');
 
 \Bitrix\AI\ThirdParty\Manager::$engines = [];

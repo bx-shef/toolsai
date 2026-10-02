@@ -168,6 +168,28 @@ $addTodo = new ReflectionMethod(Escalation::class, 'addTodo');
 Check::same('дело поставлено', $addTodo->invoke(new Escalation(new Config(static fn(): string => '')), 15, 7, 'текст'), true);
 Check::same('на сделку и старшему', \Bitrix\Crm\Activity\Entity\ToDo::$saved, [[15, 7]]);
 
+Check::group('эскалация: старший не задан — отчёт говорит об этом');
+
+eval(<<<'PHP'
+namespace Bitrix\Crm\Timeline
+{
+	class CommentEntry
+	{
+		public static function create(array $fields): int
+		{
+			return 5;
+		}
+	}
+}
+PHP);
+
+$verdict = Verdict::fromArray(['risk' => 95, 'needSenior' => true, 'why' => 'молчит', 'nextStep' => 'позвонить']);
+$withSenior = static fn(string $senior): Escalation => new Escalation(new Config(
+	static fn(string $module, string $name): string => $name === 'DEAL_senior' ? $senior : ''
+));
+Check::same('старшего нет — комментарий и причина, без дела', $withSenior('')->escalate(15, $verdict), ['comment', 'старший не задан — дела нет']);
+Check::same('старший есть — комментарий и дело', $withSenior('7')->escalate(16, $verdict), ['comment', 'todo']);
+
 Check::group('откаты по стадиям');
 
 Check::same('вперёд — ноль', ContextBuilder::countBackward([10, 20, 30]), 0);

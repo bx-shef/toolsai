@@ -45,8 +45,14 @@ final class Escalation
 			$done[] = 'comment';
 		}
 
+		// Старший не задан (например, после переустановки) — дело не ставится,
+		// и отчёт прогона говорит почему, а не молчит (приёмка, bx-shef/toolsai#3).
 		$seniorId = $this->config->getSeniorUserId();
-		if($seniorId > 0 && $this->addTodo($dealId, $seniorId, $text))
+		if($seniorId <= 0 && $done !== [])
+		{
+			$done[] = 'старший не задан — дела нет';
+		}
+		elseif($seniorId > 0 && $this->addTodo($dealId, $seniorId, $text))
 		{
 			$done[] = 'todo';
 		}
