@@ -9,8 +9,12 @@
 
 ## Шаг 0. Разведка (до включения)
 
+Боевое включение с одним тестовым звонком и откатом — готовый промпт
+[prod-check.md](prod-check.md).
+
 ```bash
 cd /home/bitrix/www/bitrix/modules/shef.toolsai/cli
+/usr/bin/php -f preflight.php            # только чтение: сеть, адрес, провайдер, движки
 /usr/bin/php -f ai-call-autostart-diag.php
 /usr/bin/php -f ai-limits-report.php
 /usr/bin/php -f core-api-guard.php

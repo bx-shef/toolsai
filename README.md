@@ -50,6 +50,11 @@
   показывает, что выбрано. Выбрать движки модуля — ссылкой «Выбрать движок
   модуля» на странице настроек модуля (вкладка «Движок»); она заменяет и
   выбор, сделанный раньше (например облачный движок по умолчанию).
+* Резюме и заполнение полей по звонку на реальной LLM пока бессмысленны:
+  промпты Копилота на коробке обфусцированы, свои промпты модуля в работе.
+  До них text-провайдер держите на заглушке; распознавание работает.
+* Смена внешнего адреса или ротация токена могут снять text-движок —
+  нажмите «Проверить и включить» ещё раз, оба движка должны быть `unchanged`.
 * Модуль опирается на недокументированное поведение ядра: после каждого
   обновления Битрикса — «Проверить и включить» и `cli/core-api-guard.php`.
 
@@ -79,6 +84,8 @@ composer require bxshef/toolsai
 | [04-runbook.md](https://github.com/bx-shef/toolsai/blob/main/docs/04-runbook.md) | включение на сервере по шагам |
 | [portal-check.md](https://github.com/bx-shef/toolsai/blob/main/docs/portal-check.md) | приёмка на стенде |
 | [agent-docker-test.md](https://github.com/bx-shef/toolsai/blob/main/docs/agent-docker-test.md) | промпт для ИИ-агента: приёмка на коробке в Docker |
+| [reports/docker-2026-10-02.md](https://github.com/bx-shef/toolsai/blob/main/docs/reports/docker-2026-10-02.md) | отчёт приёмки на стенде |
+| [prod-check.md](https://github.com/bx-shef/toolsai/blob/main/docs/prod-check.md) | промпт: боевая проверка на рабочей коробке, один звонок, с откатом |
 
 ## Лицензия
 
