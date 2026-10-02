@@ -89,7 +89,13 @@ final class Setup
 			},
 		];
 
-		$engines = $this->ensureEngines();
+		// Заглушку эндпоинта записать не удалось (на её месте чужой файл) —
+		// движки не регистрируем: ответ 200 чужого файла прошёл бы проверку
+		// ядра, и задания ушли бы не туда (приёмка, bx-shef/toolsai#3).
+		$endpointReady = $report['page '.Constants::ENDPOINT_FILE]['ok'] ?? false;
+		$engines = $endpointReady
+			? $this->ensureEngines()
+			: ['*' => ['ok' => false, 'message' => 'заглушка эндпоинта не записана — движки не регистрируются']];
 		foreach($engines as $category => $row)
 		{
 			$report['engine '.$category] = $row;
