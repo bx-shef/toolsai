@@ -29,7 +29,13 @@ final class Setup
 	/** Что стояло в настройке ИИ до выбора модулем — вернуть при удалении. */
 	public const OPTION_PREVIOUS_PREFIX = 'SYS_previous_';
 
-	public function __construct(private readonly Config $config)
+	/**
+	 * @param \Closure(string): (string[]|false)|null $resolve хост => IP; для тестов
+	 */
+	public function __construct(
+		private readonly Config $config,
+		private readonly ?\Closure $resolve = null
+	)
 	{
 	}
 
@@ -212,6 +218,16 @@ final class Setup
 	public function ensureEngines(): array
 	{
 		$url = $this->config->getCompletionsUrl();
+		$rejected = $this->config->getRejectedPublicUrl();
+		if($url === '' && $rejected !== '')
+		{
+			return [
+				'*' => [
+					'ok' => false,
+					'message' => $rejected.' не разобран: нужен адрес со схемой, без параметров и пробелов, например https://crm.example.by',
+				],
+			];
+		}
 		if($url === '')
 		{
 			return [
@@ -242,6 +258,14 @@ final class Setup
 				: ['ok' => false, 'message' => implode('; ', $result->getErrorMessages())];
 		}
 
+		// DNS — только при отказе: успешный прогон не ждёт резолвера.
+		$failed = array_keys(array_filter($report, static fn(array $row): bool => !$row['ok']));
+		$hint = $failed !== [] ? $this->getPrivateHostHint($url) : '';
+		foreach($hint !== '' ? $failed : [] as $category)
+		{
+			$report[$category]['message'] .= ' — '.$hint;
+		}
+
 		if($report[Constants::CATEGORY_AUDIO]['ok'] && !$report[Constants::CATEGORY_TEXT]['ok'])
 		{
 			$report[Constants::CATEGORY_AUDIO] = [
@@ -251,6 +275,44 @@ final class Setup
 		}
 
 		return $report;
+	}
+
+	/**
+	 * Подсказка к отказу в регистрации: адрес движка ведёт во внутреннюю сеть.
+	 *
+	 * Ядро ai ходит на completions_url с HttpClient::setPrivateIp(false) — и
+	 * при регистрации (ThirdPartyRegisterService.php:159), и на каждое
+	 * задание (ThirdParty.php:220): адрес обязан резолвиться в публичный IP.
+	 * Иначе ядро отвечает общим «должен быть валидный URL и отвечать 200», и
+	 * причину не видно (приёмка 2026-10-02, bx-shef/toolsai#3). Только
+	 * подсказка, не запрет: решает ядро, у него своя проверка.
+	 */
+	private function getPrivateHostHint(string $url): string
+	{
+		$host = (string)parse_url($url, PHP_URL_HOST);
+		if($host === '')
+		{
+			return '';
+		}
+
+		$ips = filter_var($host, FILTER_VALIDATE_IP) !== false
+			? [$host]
+			: ($this->resolve !== null ? ($this->resolve)($host) : @gethostbynamel($host));
+		if(!is_array($ips) || $ips === [])
+		{
+			return '';
+		}
+
+		$private = array_filter(
+			$ips,
+			static fn(string $ip): bool => filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false
+		);
+		if($private === [])
+		{
+			return '';
+		}
+
+		return 'адрес '.$host.' ведёт во внутреннюю сеть ('.implode(', ', $private).'): ядро ai шлёт запросы движку только на публичные адреса (HttpClient::setPrivateIp(false)), нужен внешний адрес, который с сервера резолвится в публичный IP';
 	}
 
 	/**

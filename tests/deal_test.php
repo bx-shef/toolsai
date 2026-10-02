@@ -22,6 +22,7 @@ require_once $root.'/tests/assert.php';
 
 use Shef\ToolsAi\Deal\ContextBuilder;
 use Shef\ToolsAi\Deal\DealFacts;
+use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Deal\Escalation;
 use Shef\ToolsAi\Deal\FactsSourceInterface;
 use Shef\ToolsAi\Deal\HealthAnalyzer;
@@ -114,6 +115,58 @@ Check::same(
 	Escalation::buildText(Verdict::fromArray(['risk' => 80, 'needSenior' => true, 'why' => 'молчит', 'nextStep' => 'позвонить'])),
 	"ИИ-анализ сделки: риск потери 80%, нужен старший.\nПочему: молчит\nЧто сделать: позвонить"
 );
+
+Check::group('дело старшему: конструктор ToDo из crm 26.800');
+
+// В crm 26.800 конструктор дела — (ItemIdentifier, ActivityProvider): с одним
+// аргументом ArgumentCountError, и дело не ставилось (приёмка, bx-shef/toolsai#3).
+eval(<<<'PHP'
+namespace Bitrix\Crm
+{
+	class ItemIdentifier
+	{
+		public function __construct(public readonly int $entityTypeId, public readonly int $entityId) {}
+	}
+}
+
+namespace Bitrix\Crm\Activity\Provider\ToDo
+{
+	class ToDo {}
+}
+
+namespace Bitrix\Crm\Activity\Entity
+{
+	class ToDo
+	{
+		public static array $saved = [];
+		private array $fields = [];
+
+		public function __construct(
+			private readonly \Bitrix\Crm\ItemIdentifier $owner,
+			private readonly \Bitrix\Crm\Activity\Provider\ToDo\ToDo $provider
+		) {}
+
+		public function setDescription(string $value): static { $this->fields['description'] = $value; return $this; }
+		public function setResponsibleId(int $value): static { $this->fields['responsible'] = $value; return $this; }
+		public function setDeadline(object $value): static { return $this; }
+
+		public function save(): \Bitrix\Main\Result
+		{
+			static::$saved[] = [$this->owner->entityId, $this->fields['responsible']];
+
+			return new \Bitrix\Main\Result();
+		}
+	}
+}
+PHP);
+if(!class_exists('CCrmOwnerType'))
+{
+	eval('class CCrmOwnerType { public const Deal = 2; }');
+}
+
+$addTodo = new ReflectionMethod(Escalation::class, 'addTodo');
+Check::same('дело поставлено', $addTodo->invoke(new Escalation(new Config(static fn(): string => '')), 15, 7, 'текст'), true);
+Check::same('на сделку и старшему', \Bitrix\Crm\Activity\Entity\ToDo::$saved, [[15, 7]]);
 
 Check::group('откаты по стадиям');
 

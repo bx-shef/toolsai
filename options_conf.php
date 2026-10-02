@@ -113,7 +113,9 @@ $options->addTab(
 					'#TEXT#' => $showSelection($selection[Constants::CATEGORY_TEXT] ?? null),
 					'#OWN_AUDIO#' => Constants::getEngineCode(Constants::CATEGORY_AUDIO),
 					'#OWN_TEXT#' => Constants::getEngineCode(Constants::CATEGORY_TEXT),
-					'#URL#' => '/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get(),
+					// Ссылка HTML, а не BB [URL]: тот открывает новую вкладку, и
+					// исходная страница остаётся с «не выбран» (bx-shef/toolsai#3).
+					'#URL#' => htmlspecialcharsbx('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get()),
 					'#RESULT#' => $selectResult === null ? '' : Loc::getMessage($options->moduleId.'_TAB_DEF_Selection_'.$selectResult),
 				]))
 				->setType(

@@ -67,6 +67,33 @@ class Config
 		return $this->getAiPublicUrl();
 	}
 
+	/**
+	 * Внешний адрес задан, но не разобрался (например, без схемы:
+	 * «crm.example.by»): «откуда «значение»». Пусто — адрес не задан или в
+	 * порядке. Нужен, чтобы отчёт не говорил «не задан», когда он задан с
+	 * ошибкой, и называл настройку, где её искать.
+	 */
+	public function getRejectedPublicUrl(): string
+	{
+		$sources = [
+			'внешний адрес в настройках модуля' => $this->get('DEF_publicurl'),
+			'ai::public_url' => ($this->reader)('ai', 'public_url'),
+		];
+		foreach($sources as $source => $raw)
+		{
+			if(is_string($raw) && trim($raw) !== '' && OptionParser::url($raw) === '')
+			{
+				return $source.' «'.trim($raw).'»';
+			}
+			if(is_string($raw) && OptionParser::url($raw) !== '')
+			{
+				return '';
+			}
+		}
+
+		return '';
+	}
+
 	public function getAiPublicUrl(): string
 	{
 		return OptionParser::url(($this->reader)('ai', 'public_url'));

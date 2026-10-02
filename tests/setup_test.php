@@ -199,7 +199,8 @@ $portal = sys_get_temp_dir().'/shef-toolsai-setup-'.getmypid();
 mkdir($portal.'/www/bitrix/admin', 0777, true);
 mkdir($portal.'/www/bitrix/tools', 0777, true);
 
-$setup = static fn(): Setup => new Setup(new Config());
+// Резолвер-заглушка: тест не ходит в DNS.
+$setup = static fn(): Setup => new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']);
 
 Check::group('подготовка (установщик) портал не меняет');
 
@@ -364,6 +365,30 @@ $report = $setup()->run($portal.'/www', $root);
 Check::same('отчёт о сбое', [$report['selected *']['ok'] ?? null, str_contains($report['selected *']['message'] ?? '', 'не прочитались')], [false, true]);
 Check::same('агент всё равно зарегистрирован', \CAgent::$agents, [Setup::AGENT_NAME]);
 \Bitrix\AI\Tuning\Manager::$throw = false;
+
+Check::group('внешний адрес без схемы — не «не задан»');
+
+Option::set('shef.toolsai', 'DEF_publicurl', 'crm.example.by');
+$report = $setup()->ensureEngines();
+Check::same('отчёт называет адрес и формат', [$report['*']['ok'], str_contains($report['*']['message'], 'внешний адрес в настройках модуля «crm.example.by» не разобран')], [false, true]);
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
+
+Check::group('отказ регистрации на внутреннем адресе — подсказка');
+
+\Bitrix\AI\ThirdParty\Manager::$engines = [];
+\Bitrix\AI\ThirdParty\Manager::$fail = ['sheftoolsai_audio', 'sheftoolsai_text'];
+$report = (new Setup(new Config(), static fn(string $host): array => ['172.18.0.5']))->ensureEngines();
+Check::same(
+	'адрес ведёт в приватную сеть — причина в отчёте',
+	[$report['text']['ok'], str_contains($report['text']['message'], 'внутреннюю сеть (172.18.0.5)')],
+	[false, true]
+);
+$report = (new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']))->ensureEngines();
+Check::same('публичный адрес — без подсказки', str_contains($report['text']['message'], 'внутреннюю сеть'), false);
+\Bitrix\AI\ThirdParty\Manager::$fail = [];
+$resolved = 0;
+$report = (new Setup(new Config(), static function(string $host) use (&$resolved): array { $resolved++; return ['172.18.0.5']; }))->ensureEngines();
+Check::same('успех — без подсказки и без DNS: решает ядро', [$report['text']['ok'], $report['text']['message'], $resolved], [true, 'registered', 0]);
 
 Check::group('audio без text не виден CRM');
 
