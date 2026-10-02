@@ -59,10 +59,14 @@ $network = getenv('NO_NETWORK') !== '1';
 // ---------------------------------------------------------------------------
 $section('1. Версии');
 
-foreach(['main', 'ai', 'crm', 'voximplant', 'rest', 'shef.options', 'shef.problems', 'shef.toolsai'] as $module)
+foreach(['main' => true, 'ai' => true, 'crm' => true, 'voximplant' => false, 'rest' => false, 'shef.options' => true, 'shef.problems' => true, 'shef.toolsai' => true] as $module => $required)
 {
 	$installed = ModuleManager::isModuleInstalled($module);
-	$line($installed ? 'OK' : 'FAIL', $module, $installed ? (string)ModuleManager::getVersion($module) : 'не установлен');
+	$line(
+		$installed ? 'OK' : ($required ? 'FAIL' : 'WARN'),
+		$module,
+		$installed ? (string)ModuleManager::getVersion($module) : 'не установлен'.($required ? '' : ' — звонки через телефонию Битрикса без него не распознаются')
+	);
 }
 $line(ModuleManager::isModuleInstalled('bitrix24') ? 'WARN' : 'OK', 'bitrix24', ModuleManager::isModuleInstalled('bitrix24') ? 'есть — это не коробка?' : 'нет (коробка)');
 $line(PHP_VERSION_ID >= 80200 ? 'OK' : 'FAIL', 'PHP', PHP_VERSION);
@@ -88,7 +92,7 @@ foreach([Constants::CATEGORY_AUDIO, Constants::CATEGORY_TEXT] as $category)
 $usesApi = in_array(Constants::PROVIDER_OPENAI, [$config->getProviderCode(Constants::CATEGORY_AUDIO), $config->getProviderCode(Constants::CATEGORY_TEXT)], true);
 if($usesApi)
 {
-	$line('OK', 'адрес API', $config->getBaseUrl());
+	$line('OK', 'адрес API', (string)preg_replace('~//[^/@]+@~', '//***@', $config->getBaseUrl()));
 	$line($config->getApiKey() !== '' ? 'OK' : 'WARN', 'ключ API', $mask($config->getApiKey()));
 	$line('OK', 'модели', 'asr='.$config->getAsrModel().', llm='.$config->getLlmModel());
 	$line(
@@ -229,6 +233,10 @@ if(Loader::includeModule('ai') && class_exists(\Bitrix\AI\Model\EngineTable::cla
 try
 {
 	$selection = (new Setup($config))->getEngineSelection();
+	if($selection === [])
+	{
+		$line('FAIL', 'выбор в настройках ИИ', 'не читается: нет модулей ai или crm');
+	}
 	foreach($selection as $category => $value)
 	{
 		$own = Constants::getEngineCode($category);

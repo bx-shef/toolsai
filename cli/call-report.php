@@ -84,7 +84,7 @@ if(!$connection->isTableExists($table))
 
 $columns = array_keys($connection->getTableFields($table));
 $wanted = array_values(array_intersect(
-	['ID', 'ENTITY_TYPE_ID', 'ENTITY_ID', 'PARENT_ID', 'TYPE_ID', 'TYPE', 'EXECUTION_STATUS', 'STATUS', 'ENGINE_CODE', 'ERROR_CODE', 'ERROR_MESSAGE', 'IS_MANUAL_LAUNCH', 'CREATED_AT', 'UPDATED_AT'],
+	['ID', 'ENTITY_TYPE_ID', 'ENTITY_ID', 'PARENT_ID', 'TYPE_ID', 'TYPE', 'EXECUTION_STATUS', 'STATUS', 'ENGINE_CODE', 'ERROR_CODE', 'ERROR_MESSAGE', 'IS_MANUAL_LAUNCH', 'CREATED_TIME', 'UPDATED_TIME', 'CREATED_AT', 'UPDATED_AT'],
 	$columns
 ));
 $filterColumn = $activityId > 0 ? (array_values(array_intersect(['ENTITY_ID', 'ACTIVITY_ID'], $columns))[0] ?? null) : null;
@@ -109,6 +109,10 @@ if(!$found)
 	echo $filterColumn !== null
 		? "  по делу $activityId заданий нет — ядро звонок не взяло: ACTIVITY_ID=$activityId php -f cli/ai-call-autostart-diag.php\n"
 		: "  пусто\n";
+}
+if($activityId > 0 && $filterColumn === 'ENTITY_ID')
+{
+	echo "  (фильтр по ENTITY_ID без типа: сделка или лид с тем же номером тоже попадут — смотрите ENTITY_TYPE_ID)\n";
 }
 if($activityId > 0 && $filterColumn === null)
 {

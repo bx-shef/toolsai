@@ -68,24 +68,36 @@ OpenAI-совместимом провайдере, расход виден на
 * Нашёл дефект модуля — не чинить на портале: записать в отчёт с
   воспроизведением; правка — PR в `bx-shef/toolsai`.
 
+## Как запускать скрипты
+
+**От пользователя веб-сервера**, не от root: подключение ядра создаёт файлы
+кеша, и созданные root'ом веб-сервер потом не перезапишет.
+
+```bash
+cd <корень>/bitrix/modules/shef.toolsai/cli && sudo -u bitrix env DOCUMENT_ROOT=<корень> php -f preflight.php
+```
+
+`<корень>` — из «Вход», `bitrix` — пользователь веб-сервера (BitrixVM). Ниже
+`cd <корень>/bitrix/modules/shef.toolsai/cli && sudo -u bitrix env DOCUMENT_ROOT=<корень>`
+сокращено до `BX`: **разворачивай полностью в каждой команде** —
+оболочка агента не хранит переменные и алиасы между вызовами. Параметры
+скрипта — после `env`: `sudo -u bitrix env DOCUMENT_ROOT=<корень> ACTIVITY_ID=123 php -f call-report.php`.
+
+`preflight.php` и `call-report.php` только читают. `setup.php` и
+`rollback.php` меняют портал — только на своих шагах.
+
 ## Шаг 0. Снимок «как было»
 
 ```bash
-cd $DOCUMENT_ROOT/bitrix/modules/shef.toolsai/cli   # если модуль уже стоит
-php -f preflight.php       | tee /tmp/toolsai-before.txt
-php -f core-api-guard.php  | tee /tmp/toolsai-guard-before.txt
-php -f ai-call-autostart-diag.php | tee /tmp/toolsai-diag-before.txt
+BX php -f preflight.php       | tee /tmp/toolsai-before.txt
+BX php -f core-api-guard.php  | tee /tmp/toolsai-guard-before.txt
+BX php -f ai-call-autostart-diag.php | tee /tmp/toolsai-diag-before.txt
 ```
 
 Модуля ещё нет — то же после шага 1. Запиши в отчёт из `preflight.php`:
-версии, «выбран в настройках ИИ» для audio и text (**это значения для
-отката**), `crm::AI_IGNORE_BAAS`. Плюс резервная копия БД средствами
-хостинга или хотя бы `b_option` по модулям `ai` и `crm`:
-
-```sql
-SELECT MODULE_ID, NAME, VALUE FROM b_option
- WHERE MODULE_ID IN ('ai','crm') AND (NAME LIKE '%engine%' OR NAME LIKE '%BAAS%' OR NAME LIKE 'ai_autostart%');
-```
+версии, **«выбран в настройках ИИ» для audio и text** — надёжные значения
+для отката (где ядро хранит этот выбор, зависит от версии `ai`), и
+`crm::AI_IGNORE_BAAS`. Плюс резервная копия БД средствами хостинга.
 
 ## Шаг 1. Модули
 
@@ -117,7 +129,7 @@ SELECT MODULE_ID, NAME, VALUE FROM b_option
 Затем:
 
 ```bash
-php -f preflight.php
+BX php -f preflight.php
 ```
 
 **Ожидается:** FAIL нет. Особо:
@@ -132,7 +144,7 @@ php -f preflight.php
 ## Шаг 4. Включение
 
 1. **Сервисы → ИИ: расход и остаток → «Проверить и включить»** (или
-   `php -f setup.php`). Ожидается: `engine audio`, `engine text` —
+   `BX php -f setup.php`). Ожидается: `engine audio`, `engine text` —
    `registered`; `crm::AI_IGNORE_BAAS` — Y; `agent` — есть; `selected …` —
    FAIL «не выбран»/«выбран «X»» — это нормально до п. 2.
    Повторный прогон — оба движка `unchanged`. Если text — «Запись с таким
@@ -141,7 +153,7 @@ php -f preflight.php
    «Готово», оба `sheftoolsai_*`; в `/settings/configs/?page=ai` — наши
    движки. Прежние значения модуль запомнил и вернёт при удалении; для
    отката без удаления — записанные на шаге 0.
-3. `php -f preflight.php` — раздел 5 весь OK.
+3. `BX php -f preflight.php` — раздел 5 весь OK.
 
 ## Шаг 5. Время ответа эндпоинта
 
@@ -151,17 +163,34 @@ php -f preflight.php
 обслуживается PHP (`php-fpm` или `mod_php`) и замерь POST **с сервера
 портала**:
 
-```bash
-TOKEN=$(php -r '$_SERVER["DOCUMENT_ROOT"]="'$DOCUMENT_ROOT'"; require "'$DOCUMENT_ROOT'/bitrix/modules/main/include/prolog_before.php"; echo \Bitrix\Main\Config\Option::get("shef.toolsai","SYS_token");')
-curl -s -o /dev/null -w '%{http_code} %{time_total}\n' -X POST \
-  "<внешний адрес>/bitrix/tools/shef_toolsai_completions.php?token=$TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"category":"text","prompt":"ping","callbackUrl":"<внешний адрес>/__nowhere?hash=prodcheck'$(date +%s)'"}'
+Токен — из базы, не через PHP (вывод ядра в stdout испортил бы значение):
+
+```sql
+SELECT VALUE FROM b_option WHERE MODULE_ID = 'shef.toolsai' AND NAME = 'SYS_token';
 ```
 
-**Ожидается:** `202` и время < 1 с. Токен в отчёт — маской. Колбэк уйдёт на
+Всё ниже — **одной** командой (переменные между вызовами не живут):
+
+```bash
+TOKEN=<64 hex из запроса выше>
+URL=<внешний адрес>
+HASH=prodcheck$(date +%s)
+curl -s -o /dev/null -w '%{http_code} %{time_total}\n' -X POST \
+  "$URL/bitrix/tools/shef_toolsai_completions.php?token=$TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"category":"text","prompt":"ping","callbackUrl":"'$URL'/__nowhere?hash='$HASH'","errorCallbackUrl":"'$URL'/__nowhere?hash='$HASH'"}'
+```
+
+**Ожидается:** `202`. Токен в отчёт — маской. Колбэк уйдёт на
 несуществующий адрес портала и получит 404 — это нормально; строка в журнале
-— `text/echo`.
+— `text/echo/SUCCESS`.
+
+**Время этого запроса риск не доказывает:** на заглушке обработка занимает
+миллисекунды, а curl закрывает чтение, получив `Content-Length`. Настоящий
+ответ — на шаге 7: время POST **ядра** к
+`shef_toolsai_completions.php` в access-логе веб-сервера (`$request_time` у
+nginx, `%D` у apache) при звонке на настоящем провайдере — должно быть < 1 с,
+а задание в `call-report.php` — не упасть по таймауту.
 
 ## Шаг 6. Автозапуск в тестовой воронке
 
@@ -170,7 +199,7 @@ curl -s -o /dev/null -w '%{http_code} %{time_total}\n' -X POST \
 включена; направления — какие нужны. Сохранить явно.
 
 ```bash
-php -f ai-call-autostart-diag.php   # раздел 3: у тестовой воронки «есть Transcribe?» = OK
+BX php -f ai-call-autostart-diag.php   # раздел 3: у тестовой воронки «есть Transcribe?» = OK
 ```
 
 ## Шаг 7. Один настоящий звонок
@@ -182,9 +211,10 @@ php -f ai-call-autostart-diag.php   # раздел 3: у тестовой вор
 Через 1–3 минуты:
 
 ```bash
-php -f call-report.php
-ACTIVITY_ID=<id дела звонка> php -f call-report.php
-ACTIVITY_ID=<id дела звонка> php -f ai-call-autostart-diag.php
+BX php -f call-report.php
+BX ACTIVITY_ID=<id дела звонка> php -f call-report.php
+BX ACTIVITY_ID=<id дела звонка> php -f ai-call-autostart-diag.php
+grep shef_toolsai_completions <access-лог веб-сервера> | tail -5   # время POST ядра (шаг 5)
 ```
 
 **Ожидается:**
@@ -203,19 +233,20 @@ ACTIVITY_ID=<id дела звонка> php -f ai-call-autostart-diag.php
 
 ### Откат (без удаления модуля, журнал расхода цел)
 
-1. Автозапуск в тестовой воронке — выключить распознавание.
-2. `/settings/configs/?page=ai` — вернуть движки, записанные на шаге 0.
-3. Снять наши движки:
+1. Автозапуск в тестовой воронке — выключить распознавание (руками).
+2. План отката и сам откат:
 
    ```bash
-   php -r '$_SERVER["DOCUMENT_ROOT"]="'$DOCUMENT_ROOT'"; require "'$DOCUMENT_ROOT'/bitrix/modules/main/include/prolog_before.php";
-   \Bitrix\Main\Loader::includeModule("shef.toolsai");
-   (new \Shef\ToolsAi\Engine\Registrar())->unregister("audio");
-   (new \Shef\ToolsAi\Engine\Registrar())->unregister("text");'
+   BX php -f rollback.php                                                       # план, ничего не меняет
+   BX CONFIRM=1 php -f rollback.php   # выполнить
    ```
-4. Обход BaaS — вернуть, только если до нас был N:
-   `\Bitrix\Crm\Integration\AI\BaasManager::setIgnored(false);`
-5. `php -f preflight.php` — сверить с `/tmp/toolsai-before.txt`.
+
+   Возвращает выбор в настройках ИИ (что стояло до «Выбрать движок
+   модуля»), снимает наши движки и агент анализа сделок, выключает обход
+   BaaS — только если включал его модуль.
+3. `BX php -f preflight.php` — сверить с `/tmp/toolsai-before.txt`; выбор в
+   настройках ИИ не совпал с шагом 0 — вернуть руками в
+   `/settings/configs/?page=ai`.
 
 Полное удаление модуля — только по решению человека: уносит журнал расхода
 (с `savedata = Y` — оставляет, `docs/04-runbook.md`, «Откат»).
