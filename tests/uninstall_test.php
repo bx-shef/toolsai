@@ -12,6 +12,8 @@
  * * заглушки эндпоинта и страницы расхода пишутся из каталога, где модуль
  *   стоит на самом деле, и при удалении уходят только свои;
  * * агенты модуля снимаются, блокировки агента убираются без SIGTERM;
+ * * установка портал не меняет: только токен и заглушки, обход BaaS,
+ *   движки и агент — по кнопке «Проверить и включить» (решение владельца);
  * * обход BaaS снимается, только если включали его мы: если его включил
  *   кто-то до нас, это его решение.
  *
@@ -304,6 +306,18 @@ foreach(PublicPage::getList() as $page)
 		$page->getContent($portal.'/www', $root)
 	);
 }
+
+$module = $given();
+Loader::$missing = [];
+Option::set('shef.toolsai', 'SYS_token', '');
+$module->InstallEngine();
+$report = (new ReflectionProperty($module, 'setupReport'))->getValue($module);
+Check::same(
+	'установка не включает модуль: только токен и заглушки — без обхода BaaS, движков и агента',
+	[array_keys($report), \Bitrix\Crm\Integration\AI\BaasManager::$ignored, Option::get('shef.toolsai', 'SYS_baasset')],
+	[['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE], false, '']
+);
+Check::same('токен сгенерирован', 1 === preg_match('/^[a-f0-9]{64}$/', (string)Option::get('shef.toolsai', 'SYS_token')), true);
 
 $module = $given();
 Check::same('UnInstallFiles отработал', $module->UnInstallFiles(), true);
