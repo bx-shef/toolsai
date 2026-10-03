@@ -188,10 +188,16 @@ final class Request
 			$messages[] = ['role' => $role, 'content' => $content];
 		}
 
-		$text = $this->promptText;
-		if(($text === null || trim($text) === '') && is_string($this->prompt))
+		// Сначала готовый текст: prompt — это payload->getData(), шаблон уже
+		// прогнан ядром через Formatter с маркерами (ai/lib/Payload/Prompt.php,
+		// getData()). payload_prompt_text — сырой шаблон того же промпта
+		// (Prompt\Manager::getByCode()->getPrompt()) с {маркерами} и @switch;
+		// отданный модели, он даёт ответ «пришлите настоящий текст», а FillFields
+		// получает пустой payload. Шаблон — только когда готового текста нет.
+		$text = is_string($this->prompt) ? $this->prompt : null;
+		if($text === null || trim($text) === '')
 		{
-			$text = $this->prompt;
+			$text = $this->promptText;
 		}
 
 		if($text !== null && trim($text) !== '')

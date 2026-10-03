@@ -113,6 +113,25 @@ Check::same('prompt строкой — как текст промпта', $promp
 	['role' => 'user', 'content' => 'строковый промпт'],
 ]);
 
+$rendered = Request::fromArray(makeCoreRequest([
+	'category' => 'text',
+	'payload_provider' => 'prompt',
+	'prompt' => 'Сделай резюме звонка на языке ru. Транскрипт: Алло, добрый день',
+	'payload_prompt_text' => 'Сделай резюме звонка на языке {language}. @switch(x) @case(1) Транскрипт: {original_message}',
+]));
+Check::same('готовый prompt важнее сырого шаблона payload_prompt_text', $rendered->getChatMessages(), [
+	['role' => 'user', 'content' => 'Сделай резюме звонка на языке ru. Транскрипт: Алло, добрый день'],
+]);
+
+$emptyPrompt = Request::fromArray(makeCoreRequest([
+	'category' => 'text',
+	'prompt' => '   ',
+	'payload_prompt_text' => 'шаблон',
+]));
+Check::same('пустой prompt — тогда шаблон', $emptyPrompt->getChatMessages(), [
+	['role' => 'user', 'content' => 'шаблон'],
+]);
+
 Check::group('переход в фон');
 
 Check::same('toArray/fromArray без потерь', Request::fromArray($text->toArray())->toArray(), $text->toArray());
