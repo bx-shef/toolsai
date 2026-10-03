@@ -195,7 +195,7 @@ $given = static function(): shef_toolsai
 	Option::set(NEIGHBOUR, 'DEF_systemuserid', '9');
 
 	$connection = Application::getConnection();
-	$connection->tables = ['shef_toolsai_usage', 'shef_toolsai_deal_check', 'shef_toolsai_deal_profile'];
+	$connection->tables = ['shef_toolsai_usage', 'shef_toolsai_deal_check', 'shef_toolsai_deal_profile', 'shef_toolsai_chat_assessment'];
 
 	return new shef_toolsai();
 };
@@ -208,7 +208,7 @@ $module->UnInstallDB();
 Check::same('идентификатор модуля тот самый', $module->MODULE_ID, 'shef.toolsai');
 Check::same('квота стёрта', Option::get('shef.toolsai', 'DEF_quota', 'нет'), 'нет');
 Check::same('токен стёрт', Option::get('shef.toolsai', 'SYS_token', 'нет'), 'нет');
-Check::same('таблицы удалены', Application::getConnection()->queries, ['DROP TABLE shef_toolsai_usage', 'DROP TABLE shef_toolsai_deal_check', 'DROP TABLE shef_toolsai_deal_profile']);
+Check::same('таблицы удалены', Application::getConnection()->queries, ['DROP TABLE shef_toolsai_usage', 'DROP TABLE shef_toolsai_deal_check', 'DROP TABLE shef_toolsai_deal_profile', 'DROP TABLE shef_toolsai_chat_assessment']);
 Check::same('модуль снят с регистрации', CoreCalls::$unregistered, ['shef.toolsai']);
 Check::same('кеш сброшен', CoreCalls::$cacheCleaned, 1);
 Check::same('настройка shef.options на месте', Option::get(NEIGHBOUR, 'DEF_systemuserid', 'нет'), '9');
@@ -226,11 +226,12 @@ $module = $given();
 Application::getConnection()->tables = [];
 $module->InstallDB();
 $queries = Application::getConnection()->queries;
-Check::same('три таблицы', count($queries), 3);
+Check::same('четыре таблицы', count($queries), 4);
 Check::same('журнал с уникальным хэшем задания', str_contains($queries[0] ?? '', 'CREATE TABLE shef_toolsai_usage') && str_contains($queries[0] ?? '', 'UNIQUE KEY UX_SHEF_TOOLSAI_JOB (JOB_HASH)'), true);
 Check::same('стоимость — BIGINT', str_contains($queries[0] ?? '', 'COST_MICRO BIGINT'), true);
 Check::same('проверки сделок — одна строка на сделку', str_contains($queries[1] ?? '', 'UNIQUE KEY UX_SHEF_TOOLSAI_DEAL (DEAL_ID)'), true);
 Check::same('профили анализа сделок', str_contains($queries[2] ?? '', 'CREATE TABLE shef_toolsai_deal_profile'), true);
+Check::same('оценки чатов — одна строка на дело открытой линии', str_contains($queries[3] ?? '', 'CREATE TABLE shef_toolsai_chat_assessment') && str_contains($queries[3] ?? '', 'UNIQUE KEY UX_SHEF_TOOLSAI_CHAT_ACT (ACTIVITY_ID)'), true);
 
 $module = $given();
 $module->InstallDB();
@@ -241,7 +242,7 @@ Check::group('движки, агент, блокировки, BaaS');
 $module = $given();
 $module->UnInstallEngine();
 Check::same('агенты модуля сняты', CoreCalls::$agentsRemoved, ['shef.toolsai']);
-Check::same('блокировки агента убраны без SIGTERM', CoreCalls::$pidRemoved, [[Constants::LOCK_GROUP_DEAL_HEALTH, 0]]);
+Check::same('блокировки обоих агентов убраны без SIGTERM', CoreCalls::$pidRemoved, [[Constants::LOCK_GROUP_DEAL_HEALTH, 0], [Constants::LOCK_GROUP_CHAT_ASSESSMENT, 0]]);
 
 $module = $given();
 \Bitrix\Crm\Integration\AI\BaasManager::$ignored = true;

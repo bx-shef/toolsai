@@ -20,6 +20,8 @@ use Shef\ToolsAi\Security\Token;
 final class Setup
 {
 	public const AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\DealHealthAgent::run();';
+	/** Агент оценки чатов (1.6.0): интервал — тот же DEAL_interval. */
+	public const CHAT_AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\ChatAssessmentAgent::run();';
 
 	/** Названия движков модуля в списках настроек ИИ — по ним их узнаёт администратор. */
 	public const ENGINE_NAMES = [
@@ -154,6 +156,17 @@ final class Setup
 		catch(\Throwable $throwable)
 		{
 			$report['deal profiles'] = ['ok' => false, 'message' => $throwable->getMessage()];
+		}
+
+		// Таблица оценок чатов (1.6.0): обновление модуля без установщика.
+		try
+		{
+			\Shef\ToolsAi\Chat\Model\ChatAssessmentTable::init();
+			$report['chat table'] = ['ok' => true, 'message' => 'на месте'];
+		}
+		catch(\Throwable $throwable)
+		{
+			$report['chat table'] = ['ok' => false, 'message' => $throwable->getMessage()];
 		}
 
 		$agent = $this->ensureAgent();
@@ -663,18 +676,30 @@ final class Setup
 	}
 
 	/**
-	 * Агент анализа сделок. Регистрируется всегда, работает — только когда
-	 * анализ включён в настройках: так включение не требует переустановки.
+	 * Агенты анализа сделок и оценки чатов (1.6.0). Регистрируются всегда,
+	 * работают — только когда включены в настройках (DEAL_enabled,
+	 * CHAT_enabled): так включение не требует переустановки.
 	 *
-	 * Интервал — из DEAL_interval (1.4.0). Агент уже есть с другим
+	 * Интервал у обоих — из DEAL_interval (1.4.0). Агент уже есть с другим
 	 * интервалом — CAgent::Update() его интервала, и если следующий запуск
 	 * назначен позже, чем через новый интервал (был раз в сутки), — он
 	 * переносится ближе. Повторный вызов ничего не меняет.
 	 */
 	public function ensureAgent(): bool
 	{
+		$ok = true;
+		foreach([static::AGENT_NAME, static::CHAT_AGENT_NAME] as $name)
+		{
+			$ok = $this->ensureOneAgent($name) && $ok;
+		}
+
+		return $ok;
+	}
+
+	private function ensureOneAgent(string $name): bool
+	{
 		$interval = $this->config->getAgentInterval();
-		$existing = \CAgent::GetList([], ['NAME' => static::AGENT_NAME, 'MODULE_ID' => Constants::MODULE_ID])->Fetch();
+		$existing = \CAgent::GetList([], ['NAME' => $name, 'MODULE_ID' => Constants::MODULE_ID])->Fetch();
 		if($existing)
 		{
 			$nextExec = isset($existing['NEXT_EXEC']) && function_exists('MakeTimeStamp') ? (int)MakeTimeStamp((string)$existing['NEXT_EXEC']) : null;
@@ -697,7 +722,7 @@ final class Setup
 		}
 
 		return (bool)\CAgent::AddAgent(
-			static::AGENT_NAME,
+			$name,
 			Constants::MODULE_ID,
 			'N',
 			$interval

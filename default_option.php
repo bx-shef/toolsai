@@ -19,4 +19,8 @@ $shef_toolsai_default_option = [
 	'DEAL_enabled' => 'N',
 	'DEAL_maxperrun' => '50',
 	'DEAL_interval' => '60',
+	'CHAT_enabled' => 'N',
+	'CHAT_maxperrun' => '20',
+	'CHAT_days' => '3',
+	'CHAT_script' => '',
 ];
