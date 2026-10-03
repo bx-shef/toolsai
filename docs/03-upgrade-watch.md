@@ -238,13 +238,17 @@ Guard проверяет, что в коде модуля нет строки `a
 ### 11а. Промпты текстовой цепочки CRM
 
 Готовый `prompt` против сырого `payload_prompt_text`, коды
-`summarize_transcript`/`extract_form_fields`, маркеры (`original_message`,
-`fields`, `enum_fields_values`, `current_*`, `language` названием) и разбор
-ответа полей (`extractPayloadPrettifiedData`, ключи по `NAME`, `comment`) —
+`summarize_transcript`/`extract_form_fields`/`call_scoring`, маркеры
+(`original_message`, `fields`, `enum_fields_values`, `current_*`,
+`transcript`, `criteria`, `language` названием) и разбор ответа
+(`extractPayloadPrettifiedData`; поля — ключи по `NAME` и `comment`; оценка —
+`call_review.criteria`, `scorecall.php:217-231`) —
 [01-engine-contract.md](01-engine-contract.md), «text: резюме звонка и
 заполнение полей». Поменялось — заполнение полей молча станет
-`PAYLOAD_IS_EMPTY`. После обновления crm — один звонок, FillFields в
-`b_crm_ai_queue` без ошибки.
+`PAYLOAD_IS_EMPTY`, а оценка — пустой. После обновления crm — один звонок,
+FillFields и ScoreCall в `b_crm_ai_queue` без ошибки. Обновление ai —
+проверить, закрыты ли метками промпты в `ai/install/prompts/world.json`:
+раскрыли — свои промпты можно выключить и сравнить.
 
 ### 12. Таймаут 5 секунд
 

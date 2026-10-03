@@ -540,6 +540,12 @@ $chat = new ChatProvider($config($own), new Llm($config($own), new Client($confi
 Check::same('оценка: не JSON — provider_bad_response', $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->errorCode, 'provider_bad_response');
 
 $transport = new FakeTransport();
+$transport->responses = [$answer('{"call_review":{"criteria":[{"criterion":"","status":true}]},"overall_summary":"ok","recommendations":"нет"}')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
+Check::same('оценка: ни одного критерия после разбора — provider_bad_response с расходом, не SUCCESS', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
+
+$transport = new FakeTransport();
 $transport->responses = [$answer('ответ по промпту ядра')];
 $chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
 Check::same('оценка: без критериев — промпт ядра, без json_object', [$chat->run($copilot('call_scoring', ['transcript' => 'т', 'criteria' => " \n "]))->text, isset(json_decode($transport->sent[0]['body'], true)['response_format'])], ['ответ по промпту ядра', false]);
