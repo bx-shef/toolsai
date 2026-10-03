@@ -139,6 +139,13 @@ final class Llm implements LlmProviderInterface
 		}
 
 		$payload = ['model' => $this->config->getLlmModel(), 'messages' => $messages];
+		// max_tokens из «Доп. параметров модели» сильнее умолчания модуля:
+		// потолок выхода у моделей разный, превышение — 400 на каждом запросе.
+		$extraMax = $this->config->getLlmExtra()['max_tokens'] ?? null;
+		if(is_int($extraMax) && $extraMax > 0)
+		{
+			$maxTokens = $extraMax;
+		}
 		if($maxTokens !== null && $maxTokens > 0)
 		{
 			$payload['max_tokens'] = $maxTokens;
