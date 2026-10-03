@@ -110,6 +110,19 @@ Check::same(
 	[0 => 5, 3 => 2]
 );
 
+$monthly = Profile::fromRow(['IS_ENABLED' => 'Y', 'CATEGORY_ID' => 3, 'REANALYZE_DAYS' => 30]);
+$now = 1_800_000_000;
+Check::same(
+	'срок повтора — по профилю сделки, а не по самому короткому в направлении',
+	[
+		ProfilePicker::isDue($monthly, null, $now),
+		ProfilePicker::isDue($monthly, $now - 86400, $now),
+		ProfilePicker::isDue($monthly, $now - 29 * 86400, $now),
+		ProfilePicker::isDue($monthly, $now - 30 * 86400, $now),
+	],
+	[true, false, false, true]
+);
+
 Check::group('шкала');
 
 $scale = Profile::fromRow(['IS_ENABLED' => 'Y', 'LOW_BORDER' => 40, 'HIGH_BORDER' => 70, 'SENIOR_ID' => 7]);

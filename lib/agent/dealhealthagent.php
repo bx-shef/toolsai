@@ -151,7 +151,27 @@ final class DealHealthAgent
 		// Обновление без установщика: таблицы и перенос старых настроек.
 		ProfileMigration::run($config);
 		$profiles = DealProfileTable::getProfiles(true);
-		$pick = static fn(DealFacts $facts): ?Profile => ProfilePicker::pick($profiles, $facts->categoryId, $facts->clientType);
+		// Срок повтора — по профилю самой сделки (ProfilePicker::isDue()):
+		// не пора — модель не зовём и отметку не пишем. Ручной прогон по
+		// списку сделок (cli) — без этой проверки.
+		$notDue = false;
+		$pick = static function(DealFacts $facts) use ($profiles, $onlyDeals, &$notDue): ?Profile
+		{
+			$notDue = false;
+			$profile = ProfilePicker::pick($profiles, $facts->categoryId, $facts->clientType);
+			if($profile !== null && $onlyDeals === null)
+			{
+				$checkedAt = DealCheckTable::getByDeal($facts->dealId)['CHECKED_AT'] ?? null;
+				if(!ProfilePicker::isDue($profile, $checkedAt instanceof DateTime ? $checkedAt->getTimestamp() : null, time()))
+				{
+					$notDue = true;
+
+					return null;
+				}
+			}
+
+			return $profile;
+		};
 
 		$analyzer = Container::getHealthAnalyzer();
 		$escalation = Container::getEscalation();
@@ -239,6 +259,11 @@ final class DealHealthAgent
 				$row['error'] = $throwable->getMessage();
 				$report[$dealId] = $row;
 				static::saveCheck($dealId, ['CHECKED_AT' => new DateTime(), 'SKIPPED' => 'Y', 'WHY' => mb_substr('Ошибка: '.$row['error'], 0, 500)], $logger);
+				continue;
+			}
+
+			if($notDue)
+			{
 				continue;
 			}
 

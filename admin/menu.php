@@ -30,6 +30,25 @@ if(!\Bitrix\Main\Loader::includeModule('shef.toolsai'))
 
 Loc::loadMessages(__FILE__);
 
+// Замена файлов (Composer) не запускает установщик: заглушку страницы,
+// появившейся в новой версии (профили анализа сделок, 1.1.0), иначе никто
+// не положит до «Проверить и включить», и пункт меню вёл бы в 404. Пишем
+// только отсутствующую — канон shef.problems, AdminMenu::ensureLogsPage().
+$documentRoot = (string)\Bitrix\Main\Application::getDocumentRoot();
+foreach(\Shef\ToolsAi\Main\PublicPage::getList() as $page)
+{
+	if(!is_file($page->getTarget($documentRoot)))
+	{
+		try
+		{
+			$page->install($documentRoot, dirname(__DIR__));
+		}
+		catch(\Throwable)
+		{
+		}
+	}
+}
+
 return [
 	'parent_menu' => 'global_menu_services',
 	'section' => Constants::MODULE_ID,
