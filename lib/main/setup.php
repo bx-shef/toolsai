@@ -31,10 +31,12 @@ final class Setup
 
 	/**
 	 * @param \Closure(string): (string[]|false)|null $resolve хост => IP; для тестов
+	 * @param \Closure(string): int|null $probe адрес => HTTP-статус GET, как у ядра; для тестов
 	 */
 	public function __construct(
 		private readonly Config $config,
-		private readonly ?\Closure $resolve = null
+		private readonly ?\Closure $resolve = null,
+		private readonly ?\Closure $probe = null
 	)
 	{
 	}
@@ -158,12 +160,20 @@ final class Setup
 
 		$engines = $this->ensureEngines();
 		$failed = array_filter($engines, static fn(array $row): bool => !$row['ok']);
+		$pending = array_filter($engines, static fn(array $row): bool => $row['pending'] ?? false);
 
+		// Движок снят со старого адреса и ждёт второго шага — старого адреса
+		// у него больше нет, откат токена его не вернёт. Новый токен остаётся,
+		// регистрацию завершит следующее «Проверить и включить».
+		if($pending !== [])
+		{
+			$report = ['token' => ['ok' => false, 'message' => 'новый токен; движки перерегистрируются вторым шагом — нажмите «Проверить и включить»']];
+		}
 		// Движки не перерегистрировались — они остались со старым адресом, и
 		// с новым токеном эндпоинт отвечал бы им 403 на каждый запрос.
 		// Вернуть старый токен (и старый адрес тем движкам, что успели
 		// обновиться): рабочий старый токен лучше мёртвого нового.
-		if($failed !== [] && $old !== '')
+		elseif($failed !== [] && $old !== '')
 		{
 			Option::set(Constants::MODULE_ID, Config::OPTION_TOKEN, $old);
 			$this->ensureEngines();
@@ -255,13 +265,72 @@ final class Setup
 		// списка в настройках ИИ, и распознавание встаёт без ошибки.
 		$registrar = new Registrar();
 		$report = [];
+		$current = [];
+		foreach($names as $category => $name)
+		{
+			$current[$category] = $registrar->getUrl($category);
+			if($current[$category] === $url)
+			{
+				$report[$category] = ['ok' => true, 'message' => 'unchanged'];
+			}
+		}
+
+		// Смена адреса — только штатно (решение владельца 2026-10-03):
+		// Manager::register() существующий движок не обновляет, значит
+		// снять и зарегистрировать. Шаг 1 — снять ВСЕ движки со старым
+		// адресом, шаг 2 — регистрировать: тогда валидатор ядра, который
+		// грузит список движков в процесс один раз (Engine::loadThirdParty(),
+		// static $loaded), загрузит его уже без них. Если список успели
+		// загрузить раньше в этом же процессе — регистрация упрётся в
+		// «уже существует»: такой движок снят и регистрируется следующим
+		// нажатием, в новом процессе (приёмка, bx-shef/toolsai#3, 8.2–8.3).
+		$moving = array_keys(array_filter($current, static fn(?string $old): bool => $old !== null && $old !== $url));
+		if($moving !== [])
+		{
+			// Не снимать движок ради адреса, на котором ядро его всё равно
+			// не зарегистрирует: та же проверка, что у ядра, заранее.
+			$status = $this->probe !== null ? ($this->probe)($url) : $registrar->probe($url);
+			if($status !== 200)
+			{
+				foreach($moving as $category)
+				{
+					$report[$category] = [
+						'ok' => false,
+						'message' => 'новый адрес отвечает '.$status.', а ядру нужен 200 — движок оставлен на прежнем адресе',
+					];
+				}
+			}
+			else
+			{
+				foreach($moving as $category)
+				{
+					$registrar->unregister($category);
+				}
+			}
+		}
 
 		foreach($names as $category => $name)
 		{
-			$result = $registrar->ensure($category, $name, $url);
-			$report[$category] = $result->isSuccess()
-				? ['ok' => true, 'message' => (string)($result->getData()['action'] ?? 'ok')]
-				: ['ok' => false, 'message' => implode('; ', $result->getErrorMessages())];
+			if(isset($report[$category]))
+			{
+				continue;
+			}
+
+			$wasMoved = in_array($category, $moving, true);
+			$result = $registrar->register($category, $name, $url);
+			if($result->isSuccess())
+			{
+				$report[$category] = ['ok' => true, 'message' => $wasMoved ? 'updated' : 'registered'];
+				continue;
+			}
+
+			$report[$category] = [
+				'ok' => false,
+				'pending' => $wasMoved && $registrar->getUrl($category) === null,
+				'message' => $wasMoved && $registrar->getUrl($category) === null
+					? 'снят со старого адреса, на новом зарегистрируется следующим нажатием «Проверить и включить» (ядро держит список движков до конца запроса): '.implode('; ', $result->getErrorMessages())
+					: implode('; ', $result->getErrorMessages()),
+			];
 		}
 
 		// DNS — только при отказе: успешный прогон не ждёт резолвера.

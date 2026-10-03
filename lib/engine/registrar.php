@@ -7,6 +7,7 @@ use Bitrix\AI\ThirdParty\Manager;
 use Bitrix\Main\Error;
 use Bitrix\Main\Loader;
 use Bitrix\Main\Result;
+use Bitrix\Main\Web\HttpClient;
 use Shef\ToolsAi\Main\Constants;
 
 /**
@@ -34,34 +35,27 @@ use Shef\ToolsAi\Main\Constants;
 final class Registrar
 {
 	/**
-	 * Зарегистрировать движок; если он есть с другим адресом — перерегистрировать.
+	 * Зарегистрировать движок штатно — Manager::register().
 	 *
 	 * ВНИМАНИЕ: в момент регистрации Битрикс делает GET на $completionsUrl и
 	 * требует ровно 200 (ThirdPartyRegisterService::validateCompletionsUrl).
 	 * Эндпоинт обязан быть поднят и доступен с самого портала.
 	 *
-	 * @return Result data: engineId, action = registered | unchanged | updated
+	 * Существующий движок так не обновить: validateUniqueCode() смотрит в
+	 * статический список движков процесса (Engine::loadThirdParty(), static
+	 * $loaded), — смену адреса ведёт Setup::ensureEngines(): снять, потом
+	 * зарегистрировать (решение владельца 2026-10-03: только штатно, два
+	 * шага — нормально).
+	 *
+	 * @return Result data: engineId
 	 */
-	public function ensure(string $category, string $name, string $completionsUrl): Result
+	public function register(string $category, string $name, string $completionsUrl): Result
 	{
 		$result = new Result();
 
 		if(!Loader::includeModule('ai'))
 		{
 			return $result->addError(new Error('Модуль ai не установлен', 'AI_MODULE_MISSING'));
-		}
-
-		$current = $this->getRow($category);
-		if($current !== null && (string)($current['COMPLETIONS_URL'] ?? '') === $completionsUrl)
-		{
-			return $result->setData(['engineId' => (int)$current['ID'], 'action' => 'unchanged']);
-		}
-
-		if($current !== null)
-		{
-			// Пара категория+код уникальна (validateUniqueCode): поменять адрес
-			// можно только снятием и повторной регистрацией.
-			$this->unregister($category);
 		}
 
 		try
@@ -82,10 +76,34 @@ final class Registrar
 			return $result->addError(new Error($throwable->getMessage(), 'ENGINE_REGISTER_FAILED'));
 		}
 
-		return $result->setData([
-			'engineId' => (int)$engineId,
-			'action' => $current === null ? 'registered' : 'updated',
-		]);
+		return $result->setData(['engineId' => (int)$engineId]);
+	}
+
+	/**
+	 * Адрес зарегистрированного движка; null — движка нет.
+	 */
+	public function getUrl(string $category): ?string
+	{
+		$row = $this->getRow($category);
+
+		return $row === null ? null : (string)($row['COMPLETIONS_URL'] ?? '');
+	}
+
+	/**
+	 * Ответит ли адрес ядру при регистрации: тот же GET, что делает
+	 * ThirdPartyRegisterService::validateCompletionsUrl() (setPrivateIp(false),
+	 * ждём ровно 200). Только чтение — нужен, чтобы не снимать движок ради
+	 * адреса, на котором ядро его всё равно не зарегистрирует.
+	 *
+	 * @return int HTTP-статус; 0 — нет ответа
+	 */
+	public function probe(string $completionsUrl): int
+	{
+		$http = new HttpClient();
+		$http->setPrivateIp(false);
+		$http->get($completionsUrl);
+
+		return (int)$http->getStatus();
 	}
 
 	/**
