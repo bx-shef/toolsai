@@ -61,12 +61,15 @@
 
 ## Установка
 
-Архивом: распаковать `shef.toolsai.zip` со [страницы релизов](https://github.com/bx-shef/toolsai/releases)
-в `bitrix/modules/`, поставить в **Настройки → Модули**. Или Composer:
+**Composer** — линейка целиком (`bxshef/options`, `bxshef/problems`,
+Monolog). Пока пакет не на Packagist — с репозиториями GitHub в
+`composer.json`, `composer.json` — вне корня сайта, запуск — от пользователя
+веб-сервера: [docs/composer.md](https://github.com/bx-shef/toolsai/blob/main/docs/composer.md).
+Затем **Настройки → Модули** — установить `shef.options`, `shef.problems`,
+`shef.toolsai` по порядку.
 
-```bash
-composer require bxshef/toolsai
-```
+**Архивом**: распаковать `shef.toolsai.zip` (собрать — `./build.sh`) в
+`bitrix/modules/`, поставить в **Настройки → Модули**.
 
 Установка портал не меняет: обход BaaS, движки и агент включаются
 отдельно. Дальше — внешний адрес портала в настройках модуля, «Проверить и

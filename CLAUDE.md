@@ -58,6 +58,14 @@
 из своего модуля с учётом расхода): источник здесь, после правки —
 `.claude/skills/sync.sh --local`.
 
+**Установка Composer'ом — [docs/composer.md](docs/composer.md)**:
+`bxshef/toolsai` тянет линейку и Monolog; `composer.json` — вне корня сайта,
+`extra.bitrix-dir` указывает на `bitrix` сайта; пока не на Packagist —
+репозитории GitHub (`no-api`), `1.x-dev`. Под root Composer без
+`COMPOSER_ALLOW_SUPERUSER=1` отключает плагины, и `composer/installers` не
+раскладывает модули — запускать от пользователя веб-сервера. Composer кладёт
+файлы, модули ставятся в «Настройки → Модули».
+
 **Примеры в `examples/` запускаются, а не читаются** — `contract.php`
 (контракт движка целиком) и `quota.php`. `php examples/x.php` — на
 заглушках, `DOCUMENT_ROOT=/var/www/portal php examples/x.php` — на портале.
