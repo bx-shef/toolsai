@@ -21,8 +21,17 @@ final class ChatProvider implements ProviderInterface
 	/** Запас на ответ при оценке: резюме и заполнение полей укладываются. */
 	private const ESTIMATE_OUT_TOKENS = 2000;
 
-	/** Лимит ответа для оценки по скрипту: критериев много, у каждого пояснение. */
-	private const SCORING_MAX_TOKENS = 16000;
+	/**
+	 * Лимит ответа для оценки по скрипту: критериев много, у каждого
+	 * пояснение. 8192 — потолок выхода deepseek-chat; больше потолка модели
+	 * провайдер отвечает 400, и оценка не прошла бы ни на одном звонке.
+	 * Замер на портале (bx-shef/toolsai#24): 26 критериев — 2955 токенов
+	 * с рассуждениями. Свой потолок — max_tokens в «Доп. параметрах модели».
+	 */
+	private const SCORING_MAX_TOKENS = 8192;
+
+	/** Оценка ответа до вызова для оценки звонка — он длиннее резюме. */
+	private const SCORING_ESTIMATE_OUT_TOKENS = 4000;
 
 	public function __construct(
 		private readonly Config $config,
@@ -47,7 +56,9 @@ final class ChatProvider implements ProviderInterface
 			$chars += mb_strlen($message['content']);
 		}
 
-		return $this->llm->getCostMicro(intdiv($chars, 2) + 1, self::ESTIMATE_OUT_TOKENS);
+		$out = $this->getOwnCode($request) === CopilotPrompt::CALL_SCORING ? self::SCORING_ESTIMATE_OUT_TOKENS : self::ESTIMATE_OUT_TOKENS;
+
+		return $this->llm->getCostMicro(intdiv($chars, 2) + 1, $out);
 	}
 
 	public function run(Request $request): Result

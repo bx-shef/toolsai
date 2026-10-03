@@ -569,7 +569,17 @@ $transport->responses = [$answer(''), $answer('{"call_review":{"criteria":[{"cri
 $chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
 $result = $chat->run($copilot('call_scoring', $scoringMarkers));
 Check::same('оценка: пустой ответ — повтор, второй ответ принят, расход за обе попытки', [count($transport->sent), json_decode($result->text, true)['call_review']['criteria'][0]['criterion'] ?? null, $result->units], [2, 'Поздоровался', 2200]);
-Check::same('оценка: лимит ответа 16000 токенов (умолчание DeepSeek обрезало JSON)', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 16000);
+Check::same('оценка: лимит ответа 8192 токена — не выше потолка deepseek-chat (умолчание обрезало JSON)', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 8192);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"call_review":{"criteria":[{"criterion":"Поздоровался","status":true,"explanation":"да"}]},"overall_summary":"ок","recommendations":"нет"}')];
+$withMax = $own + ['API_llmextra' => '{"max_tokens":3000}'];
+$chat = new ChatProvider($config($withMax), new Llm($config($withMax), new Client($config($withMax), $transport)));
+$chat->run($copilot('call_scoring', $scoringMarkers));
+Check::same('оценка: max_tokens из «Доп. параметров» сильнее умолчания модуля', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 3000);
+
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), new FakeTransport())));
+Check::same('оценка: расход до вызова закладывает длинный ответ (4000 токенов выхода)', $chat->estimateCostMicro($copilot('call_scoring', $scoringMarkers)) >= (new Llm($config($own), new Client($config($own), new FakeTransport())))->getCostMicro(1, 4000), true);
 
 $transport = new FakeTransport();
 $cut = new Response(200, (string)json_encode([
