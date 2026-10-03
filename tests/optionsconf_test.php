@@ -118,12 +118,17 @@ $names = [];
 $codes = [];
 $untitled = [];
 $descriptions = '';
+$infoRows = [];
 foreach($tabs as $tab)
 {
 	$names[] = $tab->getName();
 	foreach($tab->getOptionList() as $option)
 	{
 		$codes[] = $tab->getCode().'_'.$option->getCode();
+		if($option instanceof Options\RowInfo)
+		{
+			$infoRows[] = $tab->getCode().'_'.$option->getCode();
+		}
 		$descriptions .= $option->getDescription();
 		if(!$option instanceof Options\RowInfo && $option->getTitle() === '')
 		{
@@ -145,7 +150,8 @@ $legacy = \Shef\ToolsAi\Config::LEGACY_DEAL_OPTIONS;
 $read = array_values(array_diff(array_unique($match[1]), $legacy));
 sort($read);
 
-$onPage = array_values(array_filter($codes, static fn(string $code): bool => !str_ends_with($code, '_Engine') && !str_ends_with($code, '_Selection') && !str_ends_with($code, '_Profiles')));
+// Строки-пояснения (RowInfo) не хранят значений — их коды не настройки.
+$onPage = array_values(array_diff($codes, $infoRows));
 sort($onPage);
 
 Check::same('всё, что читает Config, есть на странице, и наоборот', $onPage, $read);
@@ -219,5 +225,28 @@ Check::same(
 	[true, true, false]
 );
 Check::same('сбой настроек ИИ — страница жива, редирект с fail', str_ends_with((string)$redirect, 'shef_toolsai_selected=fail'), true);
+
+Check::group('точки доступа направлений: адрес показан, ключ — нет (1.5.0)');
+
+Option::set('shef.toolsai', 'API_apikey', 'sk-common-secret');
+Option::set('shef.toolsai', 'API_asrbaseurl', 'http://127.0.0.1:8000/v1');
+Option::set('shef.toolsai', 'API_llmbaseurl', 'https://api.deepseek.com/v1');
+Option::set('shef.toolsai', 'API_llmapikey', 'sk-deepseek-secret');
+$apiRows = [];
+foreach((require $root.'/options_conf.php')[1]->getOptionList() as $option)
+{
+	if($option instanceof Options\RowInfo)
+	{
+		$apiRows[$option->getCode()] = $option->getDescription();
+	}
+}
+Check::same('у каждого направления — строка «сейчас»', array_keys($apiRows), ['Common', 'Asr', 'Llm', 'Deal']);
+Check::same(
+	'распознавание — свой адрес и без общего ключа',
+	[str_contains($apiRows['Asr'], 'http://127.0.0.1:8000/v1'), str_contains($apiRows['Asr'], 'без Authorization')],
+	[true, true]
+);
+Check::same('текст и сделки — DeepSeek', [str_contains($apiRows['Llm'], 'api.deepseek.com'), str_contains($apiRows['Deal'], 'api.deepseek.com')], [true, true]);
+Check::same('ключей в подсказках нет', str_contains(implode('', $apiRows), 'secret'), false);
 
 Check::finish();

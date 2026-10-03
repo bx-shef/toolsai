@@ -166,6 +166,22 @@ $h = static fn(mixed $value): string => htmlspecialcharsbx((string)$value);
 	<li><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_PUBLIC_URL'))?>: <b><?=$h($config->getPublicUrl() ?: '—')?></b></li>
 </ul>
 
+<?php // Куда смотрит каждое направление (1.5.0): адрес без ключа, есть ли ключ. ?>
+<h3><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DIRECTIONS'))?></h3>
+<ul>
+	<?php foreach(\Shef\ToolsAi\Config::getDirectionList() as $direction): ?>
+		<?php $endpoint = $config->getEndpoint($direction); ?>
+		<li><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DIRECTION_'.$direction))?>:
+			<b><?=$h($endpoint->getDisplayUrl())?></b>,
+			<?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DIRECTION_MODEL'))?>: <?=$h($endpoint->model)?>,
+			<?=$h(Loc::getMessage($endpoint->apiKey !== '' ? 'SH_TOOLSAI_QUOTA_DIRECTION_KEY_Y' : 'SH_TOOLSAI_QUOTA_DIRECTION_KEY_N'))?>,
+			<?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DIRECTION_TIMEOUT', ['#SEC#' => $endpoint->timeout]))?></li>
+	<?php endforeach; ?>
+	<?php foreach($config->getRejectedApiUrls() as $code): ?>
+		<li style="color:#c62828"><?=$h(Loc::getMessage('SH_TOOLSAI_QUOTA_DIRECTION_REJECTED', ['#CODE#' => $code]))?></li>
+	<?php endforeach; ?>
+</ul>
+
 <form method="post" action="<?=$h($APPLICATION->GetCurPage())?>?lang=<?=$h(LANGUAGE_ID)?>">
 	<?=bitrix_sessid_post()?>
 	<input type="hidden" name="setup" value="Y">

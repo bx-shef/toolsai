@@ -2,7 +2,6 @@
 
 namespace Shef\ToolsAi\Provider\OpenAi;
 
-use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Http\Response;
 use Shef\ToolsAi\Http\TransportInterface;
 use Shef\ToolsAi\Provider\ProviderException;
@@ -12,8 +11,12 @@ use Shef\ToolsAi\Provider\ProviderException;
  *
  * «Совместимого» — сознательно: тот же протокол у OpenAI, у своего
  * whisper-сервера (faster-whisper-server, whisper.cpp server), у vLLM,
- * LocalAI, Ollama (/v1) и у прокси. Провайдер меняется настройкой
- * API_baseurl, а не кодом.
+ * LocalAI, Ollama (/v1) и у прокси. Провайдер меняется настройкой, а не
+ * кодом.
+ *
+ * Адрес, ключ и таймаут — из точки доступа направления (ApiEndpoint), а не
+ * из общих настроек: распознавание и текст могут ходить к разным
+ * провайдерам (1.5.0). Точку собирает Config.
  *
  * Ключ — только заголовком и только из настроек; в текст ошибки не попадает
  * ни ключ, ни тело ответа целиком — тело бывает с персональными данными из
@@ -25,10 +28,15 @@ final class Client
 	private const ERROR_SNIPPET = 300;
 
 	public function __construct(
-		private readonly Config $config,
+		private readonly ApiEndpoint $endpoint,
 		private readonly TransportInterface $transport,
 	)
 	{
+	}
+
+	public function getEndpoint(): ApiEndpoint
+	{
+		return $this->endpoint;
 	}
 
 	/**
@@ -42,7 +50,7 @@ final class Client
 			$this->getUrl($path),
 			(string)json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
 			$this->getHeaders() + ['Content-Type' => 'application/json'],
-			$this->config->getTimeout()
+			$this->endpoint->timeout
 		);
 
 		return $this->decode($response);
@@ -65,7 +73,7 @@ final class Client
 			$this->getUrl($path),
 			static::buildMultipart($boundary, $fields, $fileField, $fileName, $contentType, $content),
 			$this->getHeaders() + ['Content-Type' => 'multipart/form-data; boundary='.$boundary],
-			$this->config->getTimeout()
+			$this->endpoint->timeout
 		);
 
 		return $this->decode($response);
@@ -97,7 +105,7 @@ final class Client
 
 	private function getUrl(string $path): string
 	{
-		return $this->config->getBaseUrl().'/'.ltrim($path, '/');
+		return $this->endpoint->baseUrl.'/'.ltrim($path, '/');
 	}
 
 	/**
@@ -105,7 +113,7 @@ final class Client
 	 */
 	private function getHeaders(): array
 	{
-		$key = $this->config->getApiKey();
+		$key = $this->endpoint->apiKey;
 
 		// Свой сервер в закрытой сети ключа может не требовать.
 		return $key !== '' ? ['Authorization' => 'Bearer '.$key] : [];
@@ -131,7 +139,7 @@ final class Client
 
 			// Провайдер бывает рад повторить присланный ключ в тексте ошибки
 			// («Incorrect API key sk-...»), а текст уходит в журнал и в карточку.
-			$key = $this->config->getApiKey();
+			$key = $this->endpoint->apiKey;
 			if($key !== '')
 			{
 				$message = str_replace($key, '***', $message);

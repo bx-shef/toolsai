@@ -9,7 +9,8 @@
  * Собирает то, на чём включение падало на приёмке (bx-shef/toolsai#3):
  * версии, настройки модуля, адрес движка (публичный IP — ядро ходит на него с
  * setPrivateIp(false)), ответ эндпоинта так, как его проверяет ядро, TLS до
- * провайдера, обход BaaS, движки и выбор в настройках ИИ, агент, лог CRM.
+ * провайдера каждого направления (audio, text, deal), обход BaaS, движки и
+ * выбор в настройках ИИ, агент, лог CRM.
  *
  * Автозапуск по воронкам и разбор звонка — cli/ai-call-autostart-diag.php.
  *
@@ -34,6 +35,7 @@ require_once $_SERVER['DOCUMENT_ROOT'].'/bitrix/modules/main/include/prolog_befo
 use Bitrix\Main\Loader;
 use Bitrix\Main\ModuleManager;
 use Bitrix\Main\Web\HttpClient;
+use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Container;
 use Shef\ToolsAi\Main\Constants;
 use Shef\ToolsAi\Main\Setup;
@@ -90,11 +92,32 @@ foreach([Constants::CATEGORY_AUDIO, Constants::CATEGORY_TEXT] as $category)
 	$line('OK', 'провайдер '.$category, $config->getProviderCode($category));
 }
 $usesApi = in_array(Constants::PROVIDER_OPENAI, [$config->getProviderCode(Constants::CATEGORY_AUDIO), $config->getProviderCode(Constants::CATEGORY_TEXT)], true);
+// Направления, которые ходят к провайдеру: audio — по своему провайдеру,
+// text и анализ сделок — по провайдеру text.
+$directions = [];
+foreach(Config::getDirectionList() as $direction)
+{
+	$category = $direction === Config::DIRECTION_AUDIO ? Constants::CATEGORY_AUDIO : Constants::CATEGORY_TEXT;
+	if($config->getProviderCode($category) === Constants::PROVIDER_OPENAI)
+	{
+		$directions[$direction] = $config->getEndpoint($direction);
+	}
+}
 if($usesApi)
 {
-	$line('OK', 'адрес API', (string)preg_replace('~//[^/@]+@~', '//***@', $config->getBaseUrl()));
-	$line($config->getApiKey() !== '' ? 'OK' : 'WARN', 'ключ API', $mask($config->getApiKey()));
-	$line('OK', 'модели', 'asr='.$config->getAsrModel().', llm='.$config->getLlmModel());
+	// Своя точка доступа у направления (1.5.0): адрес, ключ (маской), модель, таймаут.
+	foreach($directions as $direction => $endpoint)
+	{
+		$line(
+			'OK',
+			'API '.$direction,
+			sprintf('%s, ключ %s, модель %s, таймаут %d с', $endpoint->getDisplayUrl(), $mask($endpoint->apiKey), $endpoint->model, $endpoint->timeout)
+		);
+	}
+	foreach($config->getRejectedApiUrls() as $code)
+	{
+		$line('FAIL', $code, 'не разобран (нужно http(s)://…, без ?параметров) — берётся запасной адрес');
+	}
 	$line(
 		$config->isLlmExtraBroken() ? 'FAIL' : 'OK',
 		'доп. параметры модели текста',
@@ -200,26 +223,42 @@ elseif(!$network)
 else
 {
 	// GET /models: дёшево, денег не стоит; 401 — сеть и TLS в порядке, ключ нет.
-	$http = new HttpClient(['redirect' => false, 'socketTimeout' => 10, 'streamTimeout' => 15]);
-	if($config->getApiKey() !== '')
+	// По одному запросу на каждую разную точку доступа (адрес + ключ).
+	$checked = [];
+	foreach($directions as $direction => $endpoint)
 	{
-		$http->setHeader('Authorization', 'Bearer '.$config->getApiKey());
-	}
-	$http->get(rtrim($config->getBaseUrl(), '/').'/models');
-	$status = (int)$http->getStatus();
-	$error = implode('; ', array_map('strval', (array)$http->getError()));
-	$line(
-		match(true) { $status === 200 => 'OK', $status === 0 => 'FAIL', default => 'WARN' },
-		'GET '.$config->getBaseUrl().'/models',
-		match(true)
+		$id = $endpoint->baseUrl."\n".$endpoint->apiKey;
+		if(isset($checked[$id]))
 		{
-			$status === 200 => '200 — сеть, TLS и ключ в порядке',
-			$status === 401 || $status === 403 => $status.' — сеть есть, ключ не принят',
-			$status === 404 => '404 — сервер отвечает, /models у него нет (для своих серверов бывает)',
-			$status === 0 => 'нет ответа: '.$error.' (TLS-перехват антивирусом/прокси? — приёмка, этап 9)',
-			default => 'статус '.$status,
+			$line('OK', 'GET '.$endpoint->getDisplayUrl().'/models ('.$direction.')', 'как у '.$checked[$id]);
+			continue;
 		}
-	);
+		$checked[$id] = $direction;
+
+		$http = new HttpClient(['redirect' => false, 'socketTimeout' => 10, 'streamTimeout' => 15]);
+		// Как транспорт модуля для POST: адрес задал администратор, свой
+		// whisper на 127.0.0.1 — законный случай.
+		$http->setPrivateIp(true);
+		if($endpoint->apiKey !== '')
+		{
+			$http->setHeader('Authorization', 'Bearer '.$endpoint->apiKey);
+		}
+		$http->get(rtrim($endpoint->baseUrl, '/').'/models');
+		$status = (int)$http->getStatus();
+		$error = implode('; ', array_map('strval', (array)$http->getError()));
+		$line(
+			match(true) { $status === 200 => 'OK', $status === 0 => 'FAIL', default => 'WARN' },
+			'GET '.$endpoint->getDisplayUrl().'/models ('.$direction.')',
+			match(true)
+			{
+				$status === 200 => '200 — сеть, TLS и ключ в порядке',
+				$status === 401 || $status === 403 => $status.' — сеть есть, ключ не принят',
+				$status === 404 => '404 — сервер отвечает, /models у него нет (для своих серверов бывает)',
+				$status === 0 => 'нет ответа: '.$error.' (TLS-перехват антивирусом/прокси? — приёмка, этап 9; свой сервер — запущен ли контейнер?)',
+				default => 'статус '.$status,
+			}
+		);
+	}
 }
 
 // ---------------------------------------------------------------------------
