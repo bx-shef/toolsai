@@ -147,6 +147,24 @@ else
 			? 'не резолвится'
 			: implode(', ', $ips).($private !== [] ? ' — приватный: ядро ai не пойдёт на такой адрес (setPrivateIp(false))' : '')
 	);
+	// Частый источник приватного IP — /etc/hosts: BitrixVM пишет домен
+	// портала на локальный адрес в «ANSIBLE MANAGED BLOCK» и может вернуть
+	// закомментированную строку при следующей настройке (bx-shef/toolsai#11).
+	$hostsLines = is_readable('/etc/hosts') ? (array)file('/etc/hosts', FILE_IGNORE_NEW_LINES) : [];
+	$hostsHits = array_values(array_filter(
+		$hostsLines,
+		static fn(string $row): bool => !str_starts_with(ltrim($row), '#')
+			&& in_array(mb_strtolower($host), array_map('mb_strtolower', array_slice(preg_split('/\s+/', trim(explode('#', $row)[0])) ?: [], 1)), true)
+	));
+	$ansible = array_filter($hostsLines, static fn(string $row): bool => str_contains($row, 'ANSIBLE MANAGED BLOCK')) !== [];
+	if($hostsHits !== [])
+	{
+		$line(
+			$private !== [] ? 'FAIL' : 'WARN',
+			$host.' в /etc/hosts',
+			trim($hostsHits[0]).($ansible ? ' — блок BitrixVM: при перенастройке строка может вернуться' : '')
+		);
+	}
 	$line(str_starts_with($publicUrl, 'https://') ? 'OK' : 'WARN', 'схема', str_starts_with($publicUrl, 'https://') ? 'https' : 'http — REST и ссылки на записи могут требовать https');
 }
 
