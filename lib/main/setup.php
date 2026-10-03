@@ -391,7 +391,7 @@ final class Setup
 	}
 
 	/**
-	 * Движок, выбранный в настройках ИИ (/settings/configs/?page=ai).
+	 * Движок, выбранный в настройках ИИ (/configs/?page=ai).
 	 *
 	 * CRM берёт движок СТРОГО по коду из этой настройки
 	 * (abstractoperation.php:684-697, Engine::getByCode без фолбэка). Там

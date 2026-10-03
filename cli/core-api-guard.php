@@ -339,7 +339,7 @@ if (Loader::includeModule('crm')) {
         if ($item === null) {
             warn("настройка $code", 'не найдена', 'группа настроек Копилота не загрузилась — проверь isAiCallProcessingEnabled()');
         } elseif ($value === '') {
-            fail("выбранный движок $category", 'ПУСТО', 'в /settings/configs/?page=ai выбери наш движок явно');
+            fail("выбранный движок $category", 'ПУСТО', 'в /configs/?page=ai выбери наш движок явно');
         } elseif (str_starts_with($value, 'sheftoolsai')) {
             ok("выбранный движок $category", $value);
         } else {

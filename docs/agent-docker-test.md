@@ -184,7 +184,7 @@ HTTP-статус, текст из таймлайна.
    «Движок», ссылка «Выбрать движок модуля» (браузер — Playwright, вход
    администратором). Ожидается: после редиректа «Готово: выбраны движки
    модуля», в строке — оба кода `sheftoolsai_*`, в
-   `/settings/configs/?page=ai` — наши движки; повторный `configure.php` —
+   `/configs/?page=ai` — наши движки; повторный `configure.php` —
    `selected audio/text` «выбран наш». Проверь и отказ: ссылка без
    `sessid` и под пользователем без прав администратора ничего не меняет.
 3. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
