@@ -21,6 +21,9 @@ final class ChatProvider implements ProviderInterface
 	/** Запас на ответ при оценке: резюме и заполнение полей укладываются. */
 	private const ESTIMATE_OUT_TOKENS = 2000;
 
+	/** Лимит ответа для оценки по скрипту: критериев много, у каждого пояснение. */
+	private const SCORING_MAX_TOKENS = 16000;
+
 	public function __construct(
 		private readonly Config $config,
 		private readonly Llm $llm,
@@ -72,7 +75,10 @@ final class ChatProvider implements ProviderInterface
 		// Оценка по скрипту: CRM разбирает JSON строгой формы — приводим к ней.
 		if($this->getOwnCode($request) === CopilotPrompt::CALL_SCORING)
 		{
-			$result = $this->llm->completeJsonObject($this->getMessages($request));
+			// Ответ длинный: пояснение на каждый критерий (на портале их 26) плюс
+			// рассуждения модели — умолчание провайдера (у DeepSeek ~4K токенов)
+			// обрезает JSON посередине (bx-shef/toolsai#11).
+			$result = $this->llm->completeJsonObject($this->getMessages($request), self::SCORING_MAX_TOKENS);
 			$scoring = CopilotPrompt::normalizeScoring((array)$result->json);
 			// Ни одного критерия — оценки нет: CRM получила бы пустую, а журнал
 			// записал бы SUCCESS. Оплаченный негодный ответ — ошибкой с ценой,

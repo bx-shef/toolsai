@@ -14,6 +14,8 @@ final class LlmResult
 		public readonly int $tokensIn = 0,
 		public readonly int $tokensOut = 0,
 		public readonly int $costMicro = 0,
+		/** choices[0].finish_reason провайдера: stop, length и т. п.; '' — не прислал. */
+		public readonly string $finishReason = '',
 	)
 	{
 	}

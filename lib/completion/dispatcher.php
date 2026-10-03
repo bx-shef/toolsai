@@ -121,7 +121,15 @@ final class Dispatcher
 		{
 			$code = $throwable instanceof ProviderException ? $throwable->errorCode : 'provider_error';
 
-			$this->safeFinish($id, Status::ERROR, error: $throwable->getMessage());
+			// Ответ провайдера мог быть оплачен (200, но негоден) — в журнал
+			// с ценой, иначе квота не видит этих денег.
+			$this->safeFinish(
+				$id,
+				Status::ERROR,
+				$throwable instanceof ProviderException ? $throwable->spentUnits : 0,
+				$throwable instanceof ProviderException ? $throwable->spentMicro : 0,
+				$throwable->getMessage()
+			);
 			$this->safeLog($throwable, $request);
 			$this->sendError($request, $throwable->getMessage(), $code);
 

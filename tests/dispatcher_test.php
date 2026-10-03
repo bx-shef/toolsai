@@ -98,6 +98,10 @@ Check::same('колбэк ошибки', $transport->sent[0]['url'], $request->e
 Check::same('код провайдера дошёл до ядра', json_decode($transport->sent[0]['body'], true), ['error' => 'Провайдер ответил 429', 'error_code' => 'provider_rate_limit']);
 Check::same('сбой в логе проблем', $logger->records[0]['level'] ?? null, 'error');
 
+[$dispatcher, , $ledger] = $make(new FakeProvider(throw: new ProviderException('Модель вернула не JSON-объект', 'provider_bad_response', null, 2955, 3_500)));
+$dispatcher->dispatch($request);
+Check::same('оплаченный негодный ответ — в журнале с ценой (#11: был 0)', [$ledger->rows[1]['status'], $ledger->rows[1]['units'], $ledger->rows[1]['costMicro']], ['ERROR', 2955, 3_500]);
+
 [$dispatcher, $transport] = $make(new FakeProvider(throw: new RuntimeException('что-то')));
 $dispatcher->dispatch($request);
 Check::same('чужое исключение — provider_error', json_decode($transport->sent[0]['body'], true)['error_code'] ?? null, 'provider_error');
