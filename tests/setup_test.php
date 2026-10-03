@@ -354,6 +354,14 @@ Check::same(
 	[\Bitrix\AI\Tuning\Manager::$values, $report['audio']['ok']],
 	[['crm_copilot_fill_item_from_call_engine_audio' => 'sheftoolsai_audio', 'crm_copilot_fill_item_from_call_engine_text' => 'ChatGPT'], true]
 );
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'] = 'BitrixAudio';
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'] = 'sheftoolsai_text';
+$report = $setup()->checkEngineSelection();
+Check::same(
+	'текст наш, распознавание штатное — отчёт не FAIL',
+	[$report['text']['ok'], $report['audio']['ok'], str_contains($report['audio']['message'], 'штатный «BitrixAudio»')],
+	[true, true, true]
+);
 Check::same('мусор вместо категорий — отказ', $setup()->selectEngines(['video'])['*']['ok'], false);
 
 Check::group('выбор — только зарегистрированных движков');

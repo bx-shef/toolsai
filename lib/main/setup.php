@@ -437,13 +437,23 @@ final class Setup
 		}
 
 		$report = [];
-		foreach($this->getEngineSelection() as $category => $value)
+		$selection = $this->getEngineSelection();
+		// Хотя бы одна категория на движке модуля — вторая может быть штатной
+		// намеренно (текст модуля, распознавание BitrixAudio,
+		// bx-shef/toolsai#12): это не сбой.
+		$anyOwn = array_filter(
+			$selection,
+			static fn(?string $value, string $category): bool => $value === Constants::getEngineCode($category),
+			ARRAY_FILTER_USE_BOTH
+		) !== [];
+		foreach($selection as $category => $value)
 		{
 			$own = Constants::getEngineCode($category);
 			$report[$category] = match(true)
 			{
 				$value === null => ['ok' => false, 'message' => 'настройка не найдена: группа настроек Копилота не загрузилась'],
 				$value === $own => ['ok' => true, 'message' => 'выбран наш'],
+				$anyOwn && $value !== '' => ['ok' => true, 'message' => 'штатный «'.$value.'» — модулем не выбран (выбрать: «Выбрать движок модуля»)'],
 				default => [
 					'ok' => false,
 					'message' => ($value === '' ? 'не выбран' : 'выбран «'.$value.'»')

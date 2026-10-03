@@ -9,7 +9,7 @@ $MESS['shef.toolsai_TAB_DEF_Engine_nourl'] = 'не задан внешний а�
 $MESS['shef.toolsai_TAB_DEF_Selection'] = 'Движок в настройках ИИ портала — CRM берёт его строго по коду. Распознавание звонков: #AUDIO# (движок модуля — #OWN_AUDIO#). Текст: #TEXT# (движок модуля — #OWN_TEXT#). Выбрать движок модуля: <a href="#URL#">оба</a> · <a href="#URL_TEXT#">только текст</a> · <a href="#URL_AUDIO#">только распознавание</a> — запишет выбранное в /settings/configs/?page=ai, заменив текущий выбор этой категории; другую не трогает. Распознавание модуля работает, только пока зарегистрирован его текстовый движок, — выбирать его для текста не обязательно. #RESULT#';
 $MESS['shef.toolsai_TAB_DEF_Selection_none'] = 'настройка не найдена';
 $MESS['shef.toolsai_TAB_DEF_Selection_empty'] = 'не выбран';
-$MESS['shef.toolsai_TAB_DEF_Selection_ok'] = 'Готово: выбраны движки модуля.';
+$MESS['shef.toolsai_TAB_DEF_Selection_ok'] = 'Готово: выбор записан.';
 $MESS['shef.toolsai_TAB_DEF_Selection_fail'] = 'Не удалось: движки не зарегистрированы или настройка ИИ не найдена — сначала «Проверить и включить» на странице расхода.';
 $MESS['shef.toolsai_TAB_DEF_publicurl'] = 'Внешний адрес портала';
 $MESS['shef.toolsai_TAB_DEF_publicurl_descr'] = 'Например https://crm.example.by. Пусто — берётся ai::public_url. По нему ядро шлёт запросы движку и строит колбэк и ссылку на запись: за обратным прокси нужен внешний адрес, иначе колбэк уйдёт в никуда. После смены — «Проверить и включить» на странице расхода.';

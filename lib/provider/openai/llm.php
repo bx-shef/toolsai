@@ -99,16 +99,18 @@ final class Llm implements LlmProviderInterface
 			'response_format' => ['type' => 'json_object'],
 		]);
 
+		// Ответ ниже уже оплачен: негоден — расход едет с исключением, чтобы
+		// попасть в журнал и квоту.
 		$json = static::extractJson($result->text);
 		if($json === null)
 		{
-			throw new ProviderException('Модель вернула не JSON', 'provider_bad_response');
+			throw new ProviderException('Модель вернула не JSON', 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
 		}
 
 		$problem = static::validate($json, $schema);
 		if($problem !== null)
 		{
-			throw new ProviderException('Ответ модели не по схеме: '.$problem, 'provider_bad_response');
+			throw new ProviderException('Ответ модели не по схеме: '.$problem, 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
 		}
 
 		return new LlmResult($result->text, $json, $result->tokensIn, $result->tokensOut, $result->costMicro);
@@ -129,7 +131,9 @@ final class Llm implements LlmProviderInterface
 			'object' => is_array($value) && ($value === [] || !array_is_list($value)),
 			'array' => is_array($value) && array_is_list($value),
 			'string' => is_string($value),
-			'integer' => is_int($value),
+			// 80.0 — тоже целое (JSON Schema так и считает); в режиме
+			// json_object модели так отвечают.
+			'integer' => is_int($value) || (is_float($value) && floor($value) === $value),
 			'number' => is_int($value) || is_float($value),
 			'boolean' => is_bool($value),
 			'null' => $value === null,

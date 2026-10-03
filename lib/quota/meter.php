@@ -38,6 +38,9 @@ final class Meter implements QuotaInterface
 				[
 					'LOGIC' => 'OR',
 					['=STATUS' => UsageTable::STATUS_SUCCESS],
+					// Оплаченный, но негодный ответ (анализ сделки: не по
+					// схеме) — ошибка с ценой; ошибки без траты цены не имеют.
+					['=STATUS' => UsageTable::STATUS_ERROR, '>COST_MICRO' => 0],
 					[
 						'=STATUS' => UsageTable::STATUS_PROCESSING,
 						'>=CREATED_AT' => DateTime::createFromTimestamp(time() - static::PROCESSING_TTL),

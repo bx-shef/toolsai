@@ -14,6 +14,9 @@ class ProviderException extends \RuntimeException
 		string $message,
 		public readonly string $errorCode = 'provider_error',
 		?\Throwable $previous = null,
+		/** Ответ уже оплачен (200, но негоден) — сколько ушло: в журнал расхода. */
+		public readonly int $spentUnits = 0,
+		public readonly int $spentMicro = 0,
 	)
 	{
 		parent::__construct($message, 0, $previous);

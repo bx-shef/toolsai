@@ -277,6 +277,15 @@ foreach([
 		'provider_bad_response'
 	);
 }
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, (string)json_encode([
+	'choices' => [['message' => ['content' => '{"risk":"80"}']]],
+	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 10],
+]))];
+$spent = $errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema));
+Check::same('негодный ответ оплачен — расход едет с ошибкой', [$spent?->spentUnits, $spent?->spentMicro], [1010, 156]);
+Check::same('80.0 — целое (json_object так отвечает)', Llm::validate(['risk' => 80.0, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema), null);
+Check::same('80.5 — не целое', Llm::validate(['risk' => 80.5, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema) !== null, true);
 Check::same('лишний ключ — не ошибка', Llm::validate(['risk' => 1, 'needSenior' => false, 'why' => '', 'nextStep' => '', 'x' => 1], $schema), null);
 
 $transport = new FakeTransport();
