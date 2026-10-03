@@ -159,6 +159,7 @@ final class Llm implements LlmProviderInterface
 		$tokensOut = 0;
 		$costMicro = 0;
 		$result = null;
+		$jsonError = null;
 		for($attempt = 1; $attempt <= self::JSON_OBJECT_ATTEMPTS; $attempt++)
 		{
 			try
@@ -183,7 +184,15 @@ final class Llm implements LlmProviderInterface
 			$json = static::extractJson($result->text);
 			if($json === null && ($start = strpos($result->text, '{')) !== false && ($end = strrpos($result->text, '}')) > $start)
 			{
-				$json = static::extractJson(substr($result->text, $start, $end - $start + 1));
+				$object = substr($result->text, $start, $end - $start + 1);
+				$json = static::extractJson($object);
+				// Частый огрех модели — прямые кавычки цитаты и переносы строк
+				// внутри значений (боевой портал, #11: 6484 симв., stop, не JSON).
+				if($json === null)
+				{
+					$jsonError = json_last_error_msg();
+					$json = static::extractJson(static::repairJson($object));
+				}
 			}
 			if($json !== null && ($json === [] || !array_is_list($json)))
 			{
@@ -195,10 +204,11 @@ final class Llm implements LlmProviderInterface
 		// разговора; форма ответа достаточна, чтобы понять причину.
 		throw new ProviderException(
 			sprintf(
-				'Модель вернула не JSON-объект (попыток %d; последний ответ: %d симв., finish_reason %s)',
+				'Модель вернула не JSON-объект (попыток %d; последний ответ: %d симв., finish_reason %s; разбор: %s)',
 				self::JSON_OBJECT_ATTEMPTS,
 				mb_strlen((string)$result?->text),
-				($result?->finishReason ?? '') !== '' ? $result->finishReason : '—'
+				($result?->finishReason ?? '') !== '' ? $result->finishReason : '—',
+				$jsonError ?? 'не объект'
 			),
 			'provider_bad_response',
 			null,
@@ -286,6 +296,73 @@ final class Llm implements LlmProviderInterface
 	 * JSON из ответа модели. Часть совместимых серверов response_format
 	 * игнорирует и заворачивает ответ в ```json ... ``` — снимаем обёртку.
 	 */
+	/**
+	 * Починка JSON-объекта от типичных огрехов модели внутри строк: прямая
+	 * кавычка цитаты («сказал "добрый день"») и сырые управляющие символы
+	 * (перенос строки, таб). Кавычка внутри строки считается закрывающей,
+	 * только если за ней (через пробелы) идёт , : } ] или конец текста;
+	 * иначе — экранируется. Структуру не угадываем: что не починилось,
+	 * json_decode отвергнет.
+	 */
+	public static function repairJson(string $text): string
+	{
+		$out = '';
+		$inString = false;
+		$length = strlen($text);
+		for($i = 0; $i < $length; $i++)
+		{
+			$char = $text[$i];
+			if(!$inString)
+			{
+				$out .= $char;
+				if($char === '"')
+				{
+					$inString = true;
+				}
+				continue;
+			}
+
+			if($char === '\\')
+			{
+				$out .= $char.($text[$i + 1] ?? '');
+				$i++;
+				continue;
+			}
+
+			if($char === '"')
+			{
+				$next = ltrim(substr($text, $i + 1));
+				// После запятой должно начинаться новое значение или ключ —
+				// иначе это запятая внутри цитаты («сказал "да", потом…»).
+				$afterComma = $next !== '' && $next[0] === ',' ? ltrim(substr($next, 1)) : '';
+				if(
+					$next === ''
+					|| str_contains(':}]', $next[0])
+					|| ($next[0] === ',' && $afterComma !== '' && str_contains('"{[-0123456789tfn', $afterComma[0]))
+				)
+				{
+					$inString = false;
+					$out .= $char;
+				}
+				else
+				{
+					$out .= '\\"';
+				}
+				continue;
+			}
+
+			$out .= match($char)
+			{
+				"\n" => '\\n',
+				"\r" => '\\r',
+				"\t" => '\\t',
+				default => ord($char) < 0x20 ? sprintf('\\u%04x', ord($char)) : $char,
+			};
+		}
+
+		return $out;
+	}
+
 	public static function extractJson(string $text): ?array
 	{
 		$text = trim($text);
