@@ -178,6 +178,24 @@ final class DealHealthAgent
 			{
 				$analyzed++;
 				$logger?->error($exception, ['itemId' => $dealId]);
+
+				// Ответ оплачен, но негоден (не JSON, не по схеме) — трата
+				// всё равно в журнал и в квоту.
+				if($exception->spentMicro > 0 || $exception->spentUnits > 0)
+				{
+					try
+					{
+						$id = $ledger->start(Constants::getEngineCode(static::CATEGORY), static::CATEGORY, $analyzer->getLlmCode(), null);
+						if($id !== null)
+						{
+							$ledger->finish($id, Status::ERROR, $exception->spentUnits, $exception->spentMicro, mb_substr($exception->getMessage(), 0, 500));
+						}
+					}
+					catch(\Throwable $throwable)
+					{
+						$logger?->error($throwable, ['itemId' => $dealId, 'costMicro' => $exception->spentMicro]);
+					}
+				}
 				$row['error'] = $exception->getMessage();
 				$report[$dealId] = $row;
 

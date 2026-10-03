@@ -17,7 +17,10 @@
  * * коды ошибок провайдера: 401 -> provider_auth, 429 -> rate_limit,
  *   5xx и нет соединения -> unavailable; ключ в текст ошибки не попадает;
  * * стоимость LLM — токены × цена за миллион, в микро-единицах ровно;
- * * JSON из ответа модели — и голый, и в ```json```.
+ * * JSON из ответа модели — и голый, и в ```json```;
+ * * completeJson: провайдер отверг json_schema (4xx) — один повтор с
+ *   json_object, дальше сразу так; 401/429/5xx — без повтора; ответ
+ *   сверяется со схемой, не сошлось — provider_bad_response.
  */
 
 $root = dirname(__DIR__);
@@ -222,6 +225,68 @@ Check::same(
 	$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', []))?->errorCode,
 	'provider_bad_response'
 );
+
+Check::group('completeJson: провайдер без json_schema (DeepSeek, bx-shef/toolsai#12)');
+
+$schema = Shef\ToolsAi\Deal\HealthAnalyzer::SCHEMA;
+$good = (string)json_encode(['choices' => [['message' => ['content' => '{"risk":80,"needSenior":true,"why":"молчит","nextStep":"позвонить"}']]]]);
+$transport = new FakeTransport();
+$transport->responses = [
+	new Response(400, '{"error":{"message":"This response_format type is unavailable now"}}'),
+	new Response(200, $good),
+	new Response(200, $good),
+];
+$llm = new Llm($config($options), new Client($config($options), $transport));
+$json = $llm->completeJson('Оцени сделку.', 'факты', $schema);
+$first = json_decode($transport->sent[0]['body'], true);
+$retry = json_decode($transport->sent[1]['body'], true);
+Check::same(
+	'отказ на json_schema — один повтор с json_object, схема в системном сообщении',
+	[$first['response_format']['type'], $retry['response_format']['type'], str_contains($retry['messages'][0]['content'], '"needSenior"'), $json->json['risk']],
+	['json_schema', 'json_object', true, 80]
+);
+$llm->completeJson('Оцени сделку.', 'факты', $schema);
+Check::same(
+	'следующий запрос — сразу json_object, без лишнего отказа',
+	[count($transport->sent), json_decode($transport->sent[2]['body'], true)['response_format']['type']],
+	[3, 'json_object']
+);
+
+foreach([401 => 'provider_auth', 429 => 'provider_rate_limit', 500 => 'provider_unavailable'] as $status => $code)
+{
+	$transport = new FakeTransport();
+	$transport->responses = [new Response($status, '{"error":{"message":"x"}}')];
+	Check::same(
+		$status.' — без повтора, это не формат',
+		[$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema))?->errorCode, count($transport->sent)],
+		[$code, 1]
+	);
+}
+
+foreach([
+	'нет ключа' => '{"risk":80,"needSenior":true,"why":"молчит"}',
+	'тип не тот' => '{"risk":"80","needSenior":true,"why":"молчит","nextStep":"позвонить"}',
+	'список вместо объекта' => '[1,2]',
+] as $what => $content)
+{
+	$transport = new FakeTransport();
+	$transport->responses = [new Response(200, (string)json_encode(['choices' => [['message' => ['content' => $content]]]]))];
+	Check::same(
+		'ответ не по схеме ('.$what.') — ошибка, а не молчаливый успех',
+		$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema))?->errorCode,
+		'provider_bad_response'
+	);
+}
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, (string)json_encode([
+	'choices' => [['message' => ['content' => '{"risk":"80"}']]],
+	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 10],
+]))];
+$spent = $errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema));
+Check::same('негодный ответ оплачен — расход едет с ошибкой', [$spent?->spentUnits, $spent?->spentMicro], [1010, 156]);
+Check::same('80.0 — целое (json_object так отвечает)', Llm::validate(['risk' => 80.0, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema), null);
+Check::same('80.5 — не целое', Llm::validate(['risk' => 80.5, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema) !== null, true);
+Check::same('лишний ключ — не ошибка', Llm::validate(['risk' => 1, 'needSenior' => false, 'why' => '', 'nextStep' => '', 'x' => 1], $schema), null);
 
 $transport = new FakeTransport();
 Check::same(

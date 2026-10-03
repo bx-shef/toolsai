@@ -437,13 +437,23 @@ final class Setup
 		}
 
 		$report = [];
-		foreach($this->getEngineSelection() as $category => $value)
+		$selection = $this->getEngineSelection();
+		// Хотя бы одна категория на движке модуля — вторая может быть штатной
+		// намеренно (текст модуля, распознавание BitrixAudio,
+		// bx-shef/toolsai#12): это не сбой.
+		$anyOwn = array_filter(
+			$selection,
+			static fn(?string $value, string $category): bool => $value === Constants::getEngineCode($category),
+			ARRAY_FILTER_USE_BOTH
+		) !== [];
+		foreach($selection as $category => $value)
 		{
 			$own = Constants::getEngineCode($category);
 			$report[$category] = match(true)
 			{
 				$value === null => ['ok' => false, 'message' => 'настройка не найдена: группа настроек Копилота не загрузилась'],
 				$value === $own => ['ok' => true, 'message' => 'выбран наш'],
+				$anyOwn && $value !== '' => ['ok' => true, 'message' => 'штатный «'.$value.'» — модулем не выбран (выбрать: «Выбрать движок модуля»)'],
 				default => [
 					'ok' => false,
 					'message' => ($value === '' ? 'не выбран' : 'выбран «'.$value.'»')
@@ -471,8 +481,17 @@ final class Setup
 	 *
 	 * @return array<string, array{ok: bool, message: string}>
 	 */
-	public function selectEngines(): array
+	public function selectEngines(?array $categories = null): array
 	{
+		$categories = array_values(array_intersect(
+			[Constants::CATEGORY_TEXT, Constants::CATEGORY_AUDIO],
+			$categories ?? [Constants::CATEGORY_TEXT, Constants::CATEGORY_AUDIO]
+		));
+		if($categories === [])
+		{
+			return ['*' => ['ok' => false, 'message' => 'не выбрано ни одной категории']];
+		}
+
 		if(!static::canSelect())
 		{
 			return ['*' => ['ok' => false, 'message' => 'нет модулей ai или crm']];
@@ -488,14 +507,21 @@ final class Setup
 		$report = [];
 		$changed = false;
 
-		// text первым: audio без text CRM не видит, и выбирать его одного
-		// незачем (ThirdParty::hasQuality()).
+		// Категории можно выбирать по отдельности (bx-shef/toolsai#12: текст
+		// наш, распознавание — штатный движок). audio CRM видит, только пока
+		// ЗАРЕГИСТРИРОВАН text-движок (ThirdParty::hasQuality()) — это
+		// проверено выше; выбирать text для этого не обязательно. Если text
+		// выбирается вместе с audio и не вышел — audio не трогаем: настройки
+		// Копилота, похоже, не загрузились.
 		$settings = static::getSelectionSettings();
-		$settings = [Constants::CATEGORY_TEXT => $settings[Constants::CATEGORY_TEXT]] + $settings;
+		$settings = array_intersect_key(
+			[Constants::CATEGORY_TEXT => $settings[Constants::CATEGORY_TEXT]] + $settings,
+			array_flip($categories)
+		);
 
 		foreach($settings as $category => $code)
 		{
-			if($category !== Constants::CATEGORY_TEXT && !($report[Constants::CATEGORY_TEXT]['ok'] ?? false))
+			if($category !== Constants::CATEGORY_TEXT && isset($settings[Constants::CATEGORY_TEXT]) && !($report[Constants::CATEGORY_TEXT]['ok'] ?? false))
 			{
 				$report[$category] = ['ok' => false, 'message' => 'без text не выбирается'];
 				continue;

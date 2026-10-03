@@ -335,6 +335,35 @@ Check::same('повторно — уже наш, не сохраняется', [
 $report = $setup()->run($portal.'/www', $root);
 Check::same('и run() теперь видит наш', [$report['selected audio'], $report['selected text']['ok']], [['ok' => true, 'message' => 'выбран наш'], true]);
 
+Check::group('выбор по категориям: текст наш, распознавание штатное (bx-shef/toolsai#12)');
+
+\Bitrix\AI\Tuning\Manager::$values = [
+	'crm_copilot_fill_item_from_call_engine_audio' => 'BitrixAudio',
+	'crm_copilot_fill_item_from_call_engine_text' => 'ChatGPT',
+];
+$report = $setup()->selectEngines(['text']);
+Check::same(
+	'только text: наш выбран, BitrixAudio не тронут',
+	[\Bitrix\AI\Tuning\Manager::$values, array_keys($report)],
+	[['crm_copilot_fill_item_from_call_engine_audio' => 'BitrixAudio', 'crm_copilot_fill_item_from_call_engine_text' => 'sheftoolsai_text'], ['text']]
+);
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'] = 'ChatGPT';
+$report = $setup()->selectEngines(['audio']);
+Check::same(
+	'только audio: text-движок зарегистрирован — audio выбран, текст не тронут',
+	[\Bitrix\AI\Tuning\Manager::$values, $report['audio']['ok']],
+	[['crm_copilot_fill_item_from_call_engine_audio' => 'sheftoolsai_audio', 'crm_copilot_fill_item_from_call_engine_text' => 'ChatGPT'], true]
+);
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'] = 'BitrixAudio';
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'] = 'sheftoolsai_text';
+$report = $setup()->checkEngineSelection();
+Check::same(
+	'текст наш, распознавание штатное — отчёт не FAIL',
+	[$report['text']['ok'], $report['audio']['ok'], str_contains($report['audio']['message'], 'штатный «BitrixAudio»')],
+	[true, true, true]
+);
+Check::same('мусор вместо категорий — отказ', $setup()->selectEngines(['video'])['*']['ok'], false);
+
 Check::group('выбор — только зарегистрированных движков');
 
 Option::set('shef.toolsai', 'SYS_selected_audio', '');
