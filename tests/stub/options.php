@@ -116,6 +116,24 @@ namespace Shef\Options\Main\Options
 
 	class Text extends AOption {}
 
+	class TextArea extends AOption
+	{
+		public int $rows = 5;
+		public int $cols = 15;
+
+		public function setRows(int $value): static
+		{
+			$this->rows = $value;
+			return $this;
+		}
+
+		public function setCols(int $value): static
+		{
+			$this->cols = $value;
+			return $this;
+		}
+	}
+
 	class Checkbox extends AOption {}
 
 	class NumberInt extends AOption {}

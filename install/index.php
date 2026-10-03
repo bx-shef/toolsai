@@ -74,11 +74,12 @@ Class shef_toolsai
 
 	/**
 	 * Группы блокировок агентов — те же, что Constants::LOCK_GROUP_DEAL_HEALTH
-	 * и LOCK_GROUP_CHAT_ASSESSMENT (1.6.0). Повторены литералом: при удалении
+	 * LOCK_GROUP_CHAT_ASSESSMENT (1.6.0) и LOCK_GROUP_EMAIL (1.7.0). Повторены литералом: при удалении
 	 * автозагрузка модуля уже не работает (навык shef-new-agent, п. 4).
 	 */
 	private const LOCK_GROUP = 'shef.toolsai.dealhealth';
 	private const LOCK_GROUP_CHAT = 'shef.toolsai.chatassessment';
+	private const LOCK_GROUP_EMAIL = 'shef.toolsai.email';
 
 	/**
 	 * Флажок «AI_IGNORE_BAAS включили мы». Снимаем при удалении только его:
@@ -129,6 +130,7 @@ Class shef_toolsai
 		\Shef\ToolsAi\Deal\Model\DealCheckTable::init();
 		\Shef\ToolsAi\Deal\Model\DealProfileTable::init();
 		\Shef\ToolsAi\Chat\Model\ChatAssessmentTable::init();
+		\Shef\ToolsAi\Email\Model\EmailTable::init();
 		
 		return true;
 	}
@@ -154,6 +156,7 @@ Class shef_toolsai
 				\Shef\ToolsAi\Deal\Model\DealCheckTable::drop();
 				\Shef\ToolsAi\Deal\Model\DealProfileTable::drop();
 				\Shef\ToolsAi\Chat\Model\ChatAssessmentTable::drop();
+				\Shef\ToolsAi\Email\Model\EmailTable::drop();
 			}
 		}
 		catch(\Throwable $throwable)
@@ -252,7 +255,7 @@ Class shef_toolsai
 		// shef.options — чужой модуль, он остаётся; подключить явно.
 		if(\Bitrix\Main\Loader::includeModule('shef.options'))
 		{
-			foreach([self::LOCK_GROUP, self::LOCK_GROUP_CHAT] as $group)
+			foreach([self::LOCK_GROUP, self::LOCK_GROUP_CHAT, self::LOCK_GROUP_EMAIL] as $group)
 			{
 				\Shef\Options\Main\TempFile\Pid::removeByGroup($group, 0);
 				\Bitrix\Main\IO\Directory::deleteDirectory(

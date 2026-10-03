@@ -22,6 +22,8 @@ final class Setup
 	public const AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\DealHealthAgent::run();';
 	/** Агент оценки чатов (1.6.0): интервал — тот же DEAL_interval. */
 	public const CHAT_AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\ChatAssessmentAgent::run();';
+	/** Агент писем (1.7.0): интервал — тот же DEAL_interval. */
+	public const EMAIL_AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\EmailAgent::run();';
 
 	/** Названия движков модуля в списках настроек ИИ — по ним их узнаёт администратор. */
 	public const ENGINE_NAMES = [
@@ -167,6 +169,17 @@ final class Setup
 		catch(\Throwable $throwable)
 		{
 			$report['chat table'] = ['ok' => false, 'message' => $throwable->getMessage()];
+		}
+
+		// Таблица писем (1.7.0): обновление модуля без установщика.
+		try
+		{
+			\Shef\ToolsAi\Email\Model\EmailTable::init();
+			$report['email table'] = ['ok' => true, 'message' => 'на месте'];
+		}
+		catch(\Throwable $throwable)
+		{
+			$report['email table'] = ['ok' => false, 'message' => $throwable->getMessage()];
 		}
 
 		$agent = $this->ensureAgent();
@@ -676,11 +689,12 @@ final class Setup
 	}
 
 	/**
-	 * Агенты анализа сделок и оценки чатов (1.6.0). Регистрируются всегда,
-	 * работают — только когда включены в настройках (DEAL_enabled,
-	 * CHAT_enabled): так включение не требует переустановки.
+	 * Агенты анализа сделок, оценки чатов (1.6.0) и писем (1.7.0).
+	 * Регистрируются всегда, работают — только когда включены в настройках
+	 * (DEAL_enabled, CHAT_enabled, флажки EMAIL_*): так включение не требует
+	 * переустановки.
 	 *
-	 * Интервал у обоих — из DEAL_interval (1.4.0). Агент уже есть с другим
+	 * Интервал у всех — из DEAL_interval (1.4.0). Агент уже есть с другим
 	 * интервалом — CAgent::Update() его интервала, и если следующий запуск
 	 * назначен позже, чем через новый интервал (был раз в сутки), — он
 	 * переносится ближе. Повторный вызов ничего не меняет.
@@ -688,7 +702,7 @@ final class Setup
 	public function ensureAgent(): bool
 	{
 		$ok = true;
-		foreach([static::AGENT_NAME, static::CHAT_AGENT_NAME] as $name)
+		foreach([static::AGENT_NAME, static::CHAT_AGENT_NAME, static::EMAIL_AGENT_NAME] as $name)
 		{
 			$ok = $this->ensureOneAgent($name) && $ok;
 		}

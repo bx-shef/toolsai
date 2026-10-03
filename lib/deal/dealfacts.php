@@ -44,6 +44,10 @@ final class DealFacts
 		public readonly ?int $oldestOverdueAt = null,
 		/** @var string[] содержание последних звонков (CallInsights::formatCall()), от свежего к старому. С 1.4.0. */
 		public readonly array $callNotes = [],
+		/** @var string[] резюме последних входящих писем клиента (Email\EmailComment::dealNote()), от свежего к старому. С 1.7.0. */
+		public readonly array $emailNotes = [],
+		/** Сколько часов клиент ждёт ответа на письмо (Email\ReplyClock::waitingSince()); null — не ждёт. С 1.7.0. */
+		public readonly ?int $emailWaitingHours = null,
 	)
 	{
 	}
@@ -103,7 +107,7 @@ final class DealFacts
 			return false;   // работа идёт
 		}
 
-		if($this->callsTotal === 0 && $this->recentNotes === [] && $this->stageRollbacks === 0 && $this->callNotes === [])
+		if($this->callsTotal === 0 && $this->recentNotes === [] && $this->stageRollbacks === 0 && $this->callNotes === [] && $this->emailNotes === [])
 		{
 			return false;   // не о чем рассуждать
 		}
@@ -126,6 +130,10 @@ final class DealFacts
 			'Просроченных дел (не завершены, срок прошёл): '.$this->overdueActivities
 				.($this->oldestOverdueAt !== null ? ', самое старое — с '.date('d.m.Y', $this->oldestOverdueAt) : ''),
 		];
+		if($this->emailWaitingHours !== null)
+		{
+			$lines[] = 'Клиент ждёт ответа на письмо: '.$this->emailWaitingHours.' ч (исходящего письма или звонка после его письма нет)';
+		}
 
 		if($this->recentNotes !== [])
 		{
@@ -142,6 +150,16 @@ final class DealFacts
 			$lines[] = '';
 			$lines[] = 'Последние звонки — резюме и оценка Копилота (от свежего к старому):';
 			foreach(array_values($this->callNotes) as $i => $note)
+			{
+				$lines[] = sprintf('%d) %s', $i + 1, $note);
+			}
+		}
+
+		if($this->emailNotes !== [])
+		{
+			$lines[] = '';
+			$lines[] = 'Последние письма клиента — резюме ИИ (от свежего к старому):';
+			foreach(array_values($this->emailNotes) as $i => $note)
 			{
 				$lines[] = sprintf('%d) %s', $i + 1, $note);
 			}

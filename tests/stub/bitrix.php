@@ -576,7 +576,7 @@ namespace Bitrix\Main
 
 					public function getTableFields(string $table): array
 					{
-						return array_flip($this->fields[$table] ?? ['ID', 'MANAGER_TODO_AT', 'PROFILE_ID', 'OVERDUE_NOTIFIED_AT', 'ACTIVE_DAYS', 'ACTIVITY_ID', 'SESSION_ID', 'CHAT_ID', 'OWNER_TYPE_ID', 'OWNER_ID', 'ASSESSMENT_ID', 'STATUS', 'SCORE', 'CRITERIA', 'SUMMARY', 'REASON', 'RESPONSIBLE_ID', 'CREATED_AT']);
+						return array_flip($this->fields[$table] ?? ['ID', 'MANAGER_TODO_AT', 'PROFILE_ID', 'OVERDUE_NOTIFIED_AT', 'ACTIVE_DAYS', 'ACTIVITY_ID', 'SESSION_ID', 'CHAT_ID', 'OWNER_TYPE_ID', 'OWNER_ID', 'ASSESSMENT_ID', 'STATUS', 'SCORE', 'CRITERIA', 'SUMMARY', 'REASON', 'RESPONSIBLE_ID', 'CREATED_AT', 'DIRECTION', 'MAIL_AT', 'MODE', 'IS_CLIENT', 'RESULT', 'TODO_COUNT', 'ANALYZED_AT', 'REPLIED_AT', 'REPLY_SECONDS', 'REPLY_TODO_AT', 'SENIOR_TODO_AT']);
 					}
 
 					public function isTableExists(string $table): bool

@@ -3,7 +3,8 @@
 /**
  * Страница «ИИ: статистика» — что ИИ сделал за период: звонки и очередь ИИ
  * CRM, анализ сделок, оценки звонков и что чаще всего не делают менеджеры;
- * с 1.6.0 — оценки чатов модулем и что не делают в чатах.
+ * с 1.6.0 — оценки чатов модулем и что не делают в чатах; с 1.7.0 — письма:
+ * разбор входящих, скорость ответа, оценки писем и что не делают в письмах.
  *
  * Открывается заглушкой /bitrix/admin/shef_toolsai_stats.php
  * (Main\PublicPage). Только администратор, только чтение: здесь нет ни
@@ -20,6 +21,8 @@ use Bitrix\Main\UserTable;
 use Shef\ToolsAi\Chat\Model\ChatAssessmentTable;
 use Shef\ToolsAi\Deal\Model\DealCheckTable;
 use Shef\ToolsAi\Deal\Model\DealProfileTable;
+use Shef\ToolsAi\Email\Model\EmailTable;
+use Shef\ToolsAi\Email\ReplyClock;
 use Shef\ToolsAi\Stats\FailureCounter;
 use Shef\ToolsAi\Stats\Period;
 use Shef\ToolsAi\Stats\ScoreResult;
@@ -206,13 +209,77 @@ if($hasChats)
 }
 // endregion ////
 
+// region Письма (1.7.0) ////
+// Своя таблица модуля, как у чатов. Разбор и оценка — по ANALYZED_AT,
+// ответы — по REPLIED_AT, дела о просрочке — по своим отметкам. Дело о
+// просрочке ставится на сделку, а отметка ложится на все ждущие письма
+// сделки — поэтому считаем письма, а не дела.
+$emailTable = EmailTable::getTableName();
+$hasEmails = $connection->isTableExists($emailTable);
+$emailTotals = [];
+$emailSpeed = [];
+$emailScores = [];
+$emailFailures = new FailureCounter();
+if($hasEmails)
+{
+	$q = static fn(string $value): string => '\''.$value.'\'';
+	$emailTotals = $connection->query('
+		SELECT
+			SUM(CASE WHEN MODE = '.$q(EmailTable::MODE_SUMMARY).' AND STATUS = '.$q(EmailTable::STATUS_DONE).' AND '.$in('ANALYZED_AT').' THEN 1 ELSE 0 END) AS IN_DONE,
+			SUM(CASE WHEN MODE = '.$q(EmailTable::MODE_SUMMARY).' AND STATUS = '.$q(EmailTable::STATUS_DONE).' AND IS_CLIENT = \'N\' AND '.$in('ANALYZED_AT').' THEN 1 ELSE 0 END) AS IN_NOT_CLIENT,
+			SUM(CASE WHEN MODE = '.$q(EmailTable::MODE_SUMMARY).' AND STATUS = '.$q(EmailTable::STATUS_SKIPPED).' AND '.$in('ANALYZED_AT').' THEN 1 ELSE 0 END) AS IN_SKIPPED,
+			SUM(CASE WHEN MODE = '.$q(EmailTable::MODE_SUMMARY).' AND '.$in('ANALYZED_AT').' THEN TODO_COUNT ELSE 0 END) AS TODOS,
+			SUM(CASE WHEN MODE = '.$q(EmailTable::MODE_REVIEW).' AND STATUS = '.$q(EmailTable::STATUS_DONE).' AND '.$in('ANALYZED_AT').' THEN 1 ELSE 0 END) AS REVIEWED,
+			SUM(CASE WHEN STATUS = '.$q(EmailTable::STATUS_ERROR).' AND '.$in('ANALYZED_AT').' THEN 1 ELSE 0 END) AS ERRORS,
+			SUM(CASE WHEN '.$in('REPLIED_AT').' THEN 1 ELSE 0 END) AS REPLIED,
+			AVG(CASE WHEN '.$in('REPLIED_AT').' THEN REPLY_SECONDS END) AS AVG_REPLY,
+			SUM(CASE WHEN '.$in('REPLY_TODO_AT').' THEN 1 ELSE 0 END) AS LATE_MANAGER,
+			SUM(CASE WHEN '.$in('SENIOR_TODO_AT').' THEN 1 ELSE 0 END) AS LATE_SENIOR
+		FROM '.$helper->quote($emailTable).'
+		WHERE '.$in('ANALYZED_AT').' OR '.$in('REPLIED_AT').' OR '.$in('REPLY_TODO_AT').' OR '.$in('SENIOR_TODO_AT')
+	)->fetch() ?: [];
+
+	$emailSpeed = $fetchAll('
+		SELECT RESPONSIBLE_ID AS GRP,
+			SUM(CASE WHEN '.$in('REPLIED_AT').' THEN 1 ELSE 0 END) AS CNT,
+			AVG(CASE WHEN '.$in('REPLIED_AT').' THEN REPLY_SECONDS END) AS AVG_REPLY,
+			MAX(CASE WHEN '.$in('REPLIED_AT').' THEN REPLY_SECONDS END) AS MAX_REPLY,
+			SUM(CASE WHEN '.$in('REPLY_TODO_AT').' THEN 1 ELSE 0 END) AS LATE
+		FROM '.$helper->quote($emailTable).'
+		WHERE DIRECTION = '.ReplyClock::DIRECTION_INCOMING.' AND ('.$in('REPLIED_AT').' OR '.$in('REPLY_TODO_AT').')
+		GROUP BY RESPONSIBLE_ID
+		ORDER BY AVG_REPLY DESC
+	');
+
+	$emailScores = $fetchAll('
+		SELECT RESPONSIBLE_ID AS GRP, COUNT(*) AS CNT, AVG(SCORE) AS AVG_SCORE, MIN(SCORE) AS MIN_SCORE
+		FROM '.$helper->quote($emailTable).'
+		WHERE MODE = '.$q(EmailTable::MODE_REVIEW).' AND STATUS = '.$q(EmailTable::STATUS_DONE).' AND SCORE IS NOT NULL AND '.$in('ANALYZED_AT').'
+		GROUP BY RESPONSIBLE_ID
+		ORDER BY AVG_SCORE ASC
+	');
+
+	$result = $connection->query('
+		SELECT RESULT, RESPONSIBLE_ID FROM '.$helper->quote($emailTable).'
+		WHERE MODE = '.$q(EmailTable::MODE_REVIEW).' AND STATUS = '.$q(EmailTable::STATUS_DONE).' AND '.$in('ANALYZED_AT')
+	);
+	while($row = $result->fetch())
+	{
+		$emailFailures->add((int)$row['RESPONSIBLE_ID'], ScoreResult::parseCriteria($row['RESULT']));
+	}
+}
+// endregion ////
+
 // Имена — одним запросом на всех.
 $userIds = array_unique(array_filter(array_merge(
 	array_map(static fn(array $row): int => (int)$row['GRP'], $byManager),
 	array_map(static fn(array $row): int => (int)$row['GRP'], $assessments),
 	$failures->getUserIds(),
 	array_map(static fn(array $row): int => (int)$row['GRP'], $chatScores),
-	$chatFailures->getUserIds()
+	$chatFailures->getUserIds(),
+	array_map(static fn(array $row): int => (int)$row['GRP'], $emailSpeed),
+	array_map(static fn(array $row): int => (int)$row['GRP'], $emailScores),
+	$emailFailures->getUserIds()
 )));
 $userNames = [];
 if($userIds !== [])
@@ -230,6 +297,7 @@ $user = static fn(int $id): string => $userNames[$id] ?? ($id > 0 ? '#'.$id : '�
 
 $int = static fn(mixed $value): string => (string)(int)$value;
 $avg = static fn(mixed $value): string => $value === null ? '—' : (string)(int)round((float)$value);
+$duration = static fn(mixed $value): string => $value === null ? '—' : ReplyClock::formatDuration((int)round((float)$value));
 ?>
 <div class="adm-detail-content-wrap">
 <div class="adm-detail-content">
@@ -384,6 +452,87 @@ $avg = static fn(mixed $value): string => $value === null ? '—' : (string)(int
 		<?php $top = $chatFailures->getTopByUser($userId, 5); if($top === []) continue; ?>
 		<p><b><?=$h($user($userId))?></b>
 			<?=$h(Loc::getMessage('SH_TOOLSAI_STATS_CHAT_FAILS_USER', ['#COUNT#' => $chatFailures->getAssessedByUser($userId)]))?></p>
+		<ul>
+			<?php foreach($top as $row): ?>
+				<li><?=$h(FailureCounter::formatRow($row))?></li>
+			<?php endforeach; ?>
+		</ul>
+	<?php endforeach; ?>
+<?php endif; ?>
+
+<h3><?=$msg('EMAILS')?></h3>
+<?php if(!$hasEmails): ?>
+	<p style="color:#777"><?=$msg('EMAIL_NO_TABLE')?></p>
+<?php else: ?>
+	<ul>
+		<li><?=$msg('EMAIL_IN_DONE')?>: <b><?=$int($emailTotals['IN_DONE'] ?? 0)?></b>
+			(<?=$msg('EMAIL_IN_NOT_CLIENT')?>: <?=$int($emailTotals['IN_NOT_CLIENT'] ?? 0)?>),
+			<?=$msg('EMAIL_IN_SKIPPED')?>: <b><?=$int($emailTotals['IN_SKIPPED'] ?? 0)?></b>,
+			<?=$msg('EMAIL_TODOS')?>: <b><?=$int($emailTotals['TODOS'] ?? 0)?></b></li>
+		<li><?=$msg('EMAIL_REVIEWED')?>: <b><?=$int($emailTotals['REVIEWED'] ?? 0)?></b>,
+			<?=$msg('EMAIL_ERRORS')?>: <b><?=$int($emailTotals['ERRORS'] ?? 0)?></b></li>
+		<li><?=$msg('EMAIL_REPLIED')?>: <b><?=$int($emailTotals['REPLIED'] ?? 0)?></b>,
+			<?=$msg('EMAIL_AVG_REPLY')?>: <b><?=$h($duration($emailTotals['AVG_REPLY'] ?? null))?></b></li>
+		<li><?=$msg('EMAIL_LATE')?>: <?=$msg('EMAIL_LATE_MANAGER')?> — <b><?=$int($emailTotals['LATE_MANAGER'] ?? 0)?></b>,
+			<?=$msg('EMAIL_LATE_SENIOR')?> — <b><?=$int($emailTotals['LATE_SENIOR'] ?? 0)?></b></li>
+	</ul>
+	<p style="color:#777"><?=$msg('EMAIL_NOTE')?></p>
+	<table class="adm-list-table" style="margin-bottom:10px">
+		<thead>
+			<tr class="adm-list-table-header">
+				<td class="adm-list-table-cell"><?=$msg('COL_MANAGER')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_REPLIED')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_AVG_REPLY')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_MAX_REPLY')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_LATE')?></td>
+			</tr>
+		</thead>
+		<tbody>
+		<?php foreach($emailSpeed as $row): ?>
+			<tr class="adm-list-table-row">
+				<td class="adm-list-table-cell"><?=$h($user((int)$row['GRP']))?></td>
+				<td class="adm-list-table-cell"><?=$int($row['CNT'])?></td>
+				<td class="adm-list-table-cell"><?=$h($duration($row['AVG_REPLY']))?></td>
+				<td class="adm-list-table-cell"><?=$h($duration($row['MAX_REPLY']))?></td>
+				<td class="adm-list-table-cell"><?=$int($row['LATE'])?></td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+
+	<h3><?=$msg('EMAIL_SCORES')?></h3>
+	<table class="adm-list-table">
+		<thead>
+			<tr class="adm-list-table-header">
+				<td class="adm-list-table-cell"><?=$msg('COL_MANAGER')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_EMAILS')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_AVG_SCORE')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_MIN_SCORE')?></td>
+			</tr>
+		</thead>
+		<tbody>
+		<?php foreach($emailScores as $row): ?>
+			<tr class="adm-list-table-row">
+				<td class="adm-list-table-cell"><?=$h($user((int)$row['GRP']))?></td>
+				<td class="adm-list-table-cell"><?=$int($row['CNT'])?></td>
+				<td class="adm-list-table-cell"><?=$h($avg($row['AVG_SCORE']))?>%</td>
+				<td class="adm-list-table-cell"><?=$h($avg($row['MIN_SCORE']))?>%</td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+
+	<h3><?=$msg('EMAIL_FAILS')?></h3>
+	<p style="color:#777"><?=$h(Loc::getMessage('SH_TOOLSAI_STATS_EMAIL_FAILS_NOTE', ['#COUNT#' => $emailFailures->getAssessed()]))?></p>
+	<ol>
+		<?php foreach($emailFailures->getTop(10) as $row): ?>
+			<li><?=$h(FailureCounter::formatRow($row))?></li>
+		<?php endforeach; ?>
+	</ol>
+	<?php foreach($emailFailures->getUserIds() as $userId): ?>
+		<?php $top = $emailFailures->getTopByUser($userId, 5); if($top === []) continue; ?>
+		<p><b><?=$h($user($userId))?></b>
+			<?=$h(Loc::getMessage('SH_TOOLSAI_STATS_EMAIL_FAILS_USER', ['#COUNT#' => $emailFailures->getAssessedByUser($userId)]))?></p>
 		<ul>
 			<?php foreach($top as $row): ?>
 				<li><?=$h(FailureCounter::formatRow($row))?></li>

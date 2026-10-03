@@ -55,6 +55,9 @@ class Constants
 	/** Группа блокировок агента оценки чатов (1.6.0) — повторена в install/index.php. */
 	public const LOCK_GROUP_CHAT_ASSESSMENT = 'shef.toolsai.chatassessment';
 
+	/** Группа блокировок агента писем (1.7.0) — повторена в install/index.php. */
+	public const LOCK_GROUP_EMAIL = 'shef.toolsai.email';
+
 	/** Параметр адреса эндпоинта с токеном. */
 	public const TOKEN_PARAM = 'token';
 
