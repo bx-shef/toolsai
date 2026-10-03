@@ -46,10 +46,21 @@ namespace Bitrix\AI\ThirdParty
 		public static array $calls = [];
 		/** Коды, регистрация которых падает. */
 		public static array $fail = [];
+		/**
+		 * Как Engine::loadThirdParty() (static $loaded): список движков
+		 * грузится в процесс один раз — при первой регистрации, и валидатор
+		 * уникальности смотрит в него. null — ещё не загружен (новый процесс).
+		 */
+		public static ?array $snapshot = null;
 
 		public static function register(array $fields): int
 		{
 			static::$calls[] = 'register '.$fields['code'];
+			static::$snapshot ??= array_keys(static::$engines);
+			if(in_array($fields['code'], static::$snapshot, true))
+			{
+				throw new \RuntimeException('Запись с таким code уже существует.');
+			}
 			if(in_array($fields['code'], static::$fail, true))
 			{
 				throw new \RuntimeException('ENGINE_REGISTER_ERROR');
@@ -200,7 +211,14 @@ mkdir($portal.'/www/bitrix/admin', 0777, true);
 mkdir($portal.'/www/bitrix/tools', 0777, true);
 
 // Резолвер-заглушка: тест не ходит в DNS.
-$setup = static fn(): Setup => new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']);
+// Каждый Setup — как отдельный запрос: список движков ядра ещё не загружен.
+$probeStatus = 200;
+$setup = static function() use (&$probeStatus): Setup
+{
+	\Bitrix\AI\ThirdParty\Manager::$snapshot = null;
+
+	return new Setup(new Config(), static fn(string $host): array => ['93.184.216.34'], static fn(string $url): int => $probeStatus);
+};
 
 Check::group('подготовка (установщик) портал не меняет');
 
@@ -278,10 +296,11 @@ Check::group('смена адреса и ротация токена');
 Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
 $report = $setup()->run($portal.'/www', $root);
 Check::same('адрес сменился — updated', $report['engine audio']['message'], 'updated');
-Check::same('через unregister + register', \Bitrix\AI\ThirdParty\Manager::$calls, [
-	'unregister sheftoolsai_audio', 'register sheftoolsai_audio',
-	'unregister sheftoolsai_text', 'register sheftoolsai_text',
+Check::same('штатно: сначала снять оба, потом зарегистрировать оба', \Bitrix\AI\ThirdParty\Manager::$calls, [
+	'unregister sheftoolsai_audio', 'unregister sheftoolsai_text',
+	'register sheftoolsai_audio', 'register sheftoolsai_text',
 ]);
+Check::same('text тоже updated — в одном нажатии', $report['engine text']['message'], 'updated');
 
 $report = $setup()->rotateToken();
 $newToken = Option::get('shef.toolsai', 'SYS_token');
@@ -377,18 +396,95 @@ Check::group('отказ регистрации на внутреннем адр
 
 \Bitrix\AI\ThirdParty\Manager::$engines = [];
 \Bitrix\AI\ThirdParty\Manager::$fail = ['sheftoolsai_audio', 'sheftoolsai_text'];
+\Bitrix\AI\ThirdParty\Manager::$snapshot = null;
 $report = (new Setup(new Config(), static fn(string $host): array => ['172.18.0.5']))->ensureEngines();
 Check::same(
 	'адрес ведёт в приватную сеть — причина в отчёте',
 	[$report['text']['ok'], str_contains($report['text']['message'], 'внутреннюю сеть (172.18.0.5)')],
 	[false, true]
 );
+\Bitrix\AI\ThirdParty\Manager::$snapshot = null;
 $report = (new Setup(new Config(), static fn(string $host): array => ['93.184.216.34']))->ensureEngines();
 Check::same('публичный адрес — без подсказки', str_contains($report['text']['message'], 'внутреннюю сеть'), false);
 \Bitrix\AI\ThirdParty\Manager::$fail = [];
 $resolved = 0;
+\Bitrix\AI\ThirdParty\Manager::$snapshot = null;
 $report = (new Setup(new Config(), static function(string $host) use (&$resolved): array { $resolved++; return ['172.18.0.5']; }))->ensureEngines();
 Check::same('успех — без подсказки и без DNS: решает ядро', [$report['text']['ok'], $report['text']['message'], $resolved], [true, 'registered', 0]);
+
+Check::group('смена адреса: список движков в процессе уже загружен — второй шаг');
+
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://new.example.by');
+\Bitrix\AI\ThirdParty\Manager::$engines = [];
+\Bitrix\AI\ThirdParty\Manager::$fail = [];
+$setup()->run($portal.'/www', $root);
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://moved.example.by');
+$step = $setup();
+// Что-то в этом запросе уже загрузило список движков ядра (static $loaded).
+\Bitrix\AI\ThirdParty\Manager::$snapshot = array_keys(\Bitrix\AI\ThirdParty\Manager::$engines);
+$report = $step->ensureEngines();
+Check::same(
+	'шаг 1: оба сняты со старого адреса, отчёт зовёт нажать ещё раз',
+	[$report['text']['pending'] ?? false, str_contains($report['text']['message'], 'следующим нажатием'), \Bitrix\AI\ThirdParty\Manager::$engines],
+	[true, true, []]
+);
+$report = $setup()->ensureEngines();
+Check::same('шаг 2 — новый запрос: оба на новом адресе', [$report['audio']['ok'], $report['text']['ok']], [true, true]);
+Check::same(
+	'адрес — новый',
+	str_starts_with(\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']['completions_url'], 'https://moved.example.by'),
+	true
+);
+
+Check::group('смена адреса: новый адрес не отвечает 200 — движки не трогаем');
+
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://broken.example.by');
+\Bitrix\AI\ThirdParty\Manager::$calls = [];
+$probeStatus = 404;
+$report = $setup()->ensureEngines();
+Check::same(
+	'ни снятия, ни регистрации; причина в отчёте',
+	[\Bitrix\AI\ThirdParty\Manager::$calls, $report['text']['ok'], str_contains($report['text']['message'], 'оставлен на прежнем адресе')],
+	[[], false, true]
+);
+Check::same(
+	'движки на прежнем адресе',
+	str_starts_with(\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']['completions_url'], 'https://moved.example.by'),
+	true
+);
+$probeStatus = 200;
+Option::set('shef.toolsai', 'DEF_publicurl', 'https://moved.example.by');
+
+Check::group('ротация токена, когда новый адрес не отвечает 200');
+
+$before = Option::get('shef.toolsai', 'SYS_token');
+\Bitrix\AI\ThirdParty\Manager::$calls = [];
+$probeStatus = 404;
+$report = $setup()->rotateToken();
+Check::same(
+	'токен прежний, движки не тронуты',
+	[Option::get('shef.toolsai', 'SYS_token'), \Bitrix\AI\ThirdParty\Manager::$calls, $report['token']['ok']],
+	[$before, [], false]
+);
+$probeStatus = 200;
+
+Check::group('ротация токена, когда второй шаг нужен');
+
+$before = Option::get('shef.toolsai', 'SYS_token');
+$step = $setup();
+\Bitrix\AI\ThirdParty\Manager::$snapshot = array_keys(\Bitrix\AI\ThirdParty\Manager::$engines);
+$report = $step->rotateToken();
+Check::same(
+	'новый токен оставлен (старого адреса у снятых движков нет), отчёт зовёт нажать ещё раз',
+	[Option::get('shef.toolsai', 'SYS_token') !== $before, str_contains($report['token']['message'], 'вторым шагом')],
+	[true, true]
+);
+$report = $setup()->ensureEngines();
+Check::same(
+	'второй шаг — движки с новым токеном',
+	[$report['text']['ok'], str_ends_with(\Bitrix\AI\ThirdParty\Manager::$engines['sheftoolsai_text']['completions_url'], '?token='.Option::get('shef.toolsai', 'SYS_token'))],
+	[true, true]
+);
 
 Check::group('на месте заглушки эндпоинта чужой файл — движки не регистрируются');
 
