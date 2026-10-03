@@ -15,6 +15,8 @@ $MESS['SH_TOOLSAI_PROFILES_CLIENT_HELP'] = 'Как считается тип. Б
 • Новый — клиент создан меньше часа назад. В CRM с лидами контакт и компания новыми не бывают вовсе, а сделку анализируют через дни после создания — для анализа сделок почти не встречается.
 • В работе — все остальные.';
 $MESS['SH_TOOLSAI_PROFILES_F_IDLE_DAYS'] = 'Сделка зависла, если дел не было, дней';
+$MESS['SH_TOOLSAI_PROFILES_F_ACTIVE_DAYS'] = 'Только живые сделки: активность не старше, дней';
+$MESS['SH_TOOLSAI_PROFILES_F_ACTIVE_DAYS_DESCR'] = 'Сделка, где дел и звонков не было дольше, в анализ не идёт и модель не зовёт: «мёртвая» сделка — только расход. Дела, которые ставит сам агент, активностью не считаются. 0 — без ограничения. По умолчанию 60.';
 $MESS['SH_TOOLSAI_PROFILES_F_REANALYZE_DAYS'] = 'Повторный анализ и повторные дела не чаще, дней';
 $MESS['SH_TOOLSAI_PROFILES_F_LOW_BORDER'] = 'Нижняя граница риска, 0-100';
 $MESS['SH_TOOLSAI_PROFILES_F_LOW_BORDER_DESCR'] = 'С неё — дело ответственному, если у сделки нет запланированных дел.';
@@ -25,7 +27,7 @@ $MESS['SH_TOOLSAI_PROFILES_F_SENIOR_ID_DESCR'] = 'Пусто — при высо
 $MESS['SH_TOOLSAI_PROFILES_F_PROMPT'] = 'Промпт';
 $MESS['SH_TOOLSAI_PROFILES_F_PROMPT_DESCR'] = 'Свой системный промпт целиком. Пусто — общий (показан серым). Форму ответа (JSON) модуль добавляет сам.';
 $MESS['SH_TOOLSAI_PROFILES_COL_SCALE'] = 'Шкала';
-$MESS['SH_TOOLSAI_PROFILES_SCALE'] = 'менеджер от #LOW#%, старший от #HIGH#%; зависла через #IDLE# дн.; повтор через #REANALYZE# дн.';
+$MESS['SH_TOOLSAI_PROFILES_SCALE'] = 'менеджер от #LOW#%, старший от #HIGH#%; зависла через #IDLE# дн.; повтор через #REANALYZE# дн.; живые — до #ACTIVE# дн.';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_ANY'] = 'любой';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_1'] = 'Новый (для сделок почти не встречается)';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_2'] = 'В работе';
@@ -47,6 +49,7 @@ $MESS['SH_TOOLSAI_PROFILES_ERROR_TITLE'] = 'Не задано название';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_SORT'] = 'Сортировка — целое число';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_CATEGORY_ID'] = 'Направление не разобралось';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_IDLE_DAYS'] = 'Дни «зависла» — целое число 0-365';
+$MESS['SH_TOOLSAI_PROFILES_ERROR_ACTIVE_DAYS'] = 'Дни «живой» сделки — целое число 0-3650';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_REANALYZE_DAYS'] = 'Дни повтора — целое число 1-365';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_LOW_BORDER'] = 'Нижняя граница — целое число 0-100';
 $MESS['SH_TOOLSAI_PROFILES_ERROR_HIGH_BORDER'] = 'Верхняя граница — целое число 0-100, не ниже нижней';

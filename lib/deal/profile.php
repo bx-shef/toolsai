@@ -21,6 +21,12 @@ final class Profile
 	public const DEFAULT_LOW_BORDER = 50;
 	public const DEFAULT_HIGH_BORDER = 70;
 	public const DEFAULT_SORT = 100;
+	/**
+	 * Анализировать только живые сделки: последняя активность не старше
+	 * стольких дней. 0 — без ограничения. С версии 1.4.0.
+	 */
+	public const DEFAULT_ACTIVE_DAYS = 60;
+	public const ACTIVE_DAYS_MAX = 3650;
 
 	/** Промпт длиннее — обрезается: это системный промпт, а не регламент. */
 	public const PROMPT_MAX = 8000;
@@ -41,6 +47,8 @@ final class Profile
 		public readonly int $lowBorder,
 		public readonly int $highBorder,
 		public readonly int $seniorId,
+		/** Живая сделка — активность не старше стольких дней; 0 — любая. */
+		public readonly int $activeDays = self::DEFAULT_ACTIVE_DAYS,
 	)
 	{
 	}
@@ -65,6 +73,7 @@ final class Profile
 			// менеджеру ещё ничего не положено. Подтягиваем к LOW.
 			highBorder: max($low, static::int($row['HIGH_BORDER'] ?? null, static::DEFAULT_HIGH_BORDER, 0, 100)),
 			seniorId: static::int($row['SENIOR_ID'] ?? null, 0, 0),
+			activeDays: static::int($row['ACTIVE_DAYS'] ?? null, static::DEFAULT_ACTIVE_DAYS, 0, static::ACTIVE_DAYS_MAX),
 		);
 	}
 
@@ -115,6 +124,7 @@ final class Profile
 			'LOW_BORDER' => $number('LOW_BORDER', static::DEFAULT_LOW_BORDER, 0, 100),
 			'HIGH_BORDER' => $number('HIGH_BORDER', static::DEFAULT_HIGH_BORDER, 0, 100),
 			'SENIOR_ID' => $number('SENIOR_ID', 0, 0, PHP_INT_MAX),
+			'ACTIVE_DAYS' => $number('ACTIVE_DAYS', static::DEFAULT_ACTIVE_DAYS, 0, static::ACTIVE_DAYS_MAX),
 		];
 
 		if($fields['HIGH_BORDER'] < $fields['LOW_BORDER'])

@@ -27,7 +27,11 @@ class Config
 	public const DEFAULT_LLM_MODEL = 'gpt-4o-mini';
 	public const DEFAULT_TIMEOUT = 120;
 	public const DEFAULT_THRESHOLD = 70;
-	public const DEFAULT_MAX_PER_RUN = 20;
+	public const DEFAULT_MAX_PER_RUN = 50;
+	/** Интервал агента анализа сделок, минут (DEAL_interval). С 1.4.0. */
+	public const DEFAULT_AGENT_INTERVAL_MINUTES = 60;
+	public const AGENT_INTERVAL_MIN = 10;
+	public const AGENT_INTERVAL_MAX = 10080;
 	public const DEFAULT_REANALYZE_DAYS = 7;
 	public const DEFAULT_IDLE_DAYS = 3;
 
@@ -321,6 +325,12 @@ class Config
 	}
 
 	/** Устарело (1.1.0): для переноса в профили. */
+	/** Интервал агента анализа сделок в секундах: DEAL_interval — минуты, 10..10080 (неделя). */
+	public function getAgentInterval(): int
+	{
+		return 60 * OptionParser::int($this->get('DEAL_interval'), static::DEFAULT_AGENT_INTERVAL_MINUTES, static::AGENT_INTERVAL_MIN, static::AGENT_INTERVAL_MAX);
+	}
+
 	public function getReanalyzeDays(): int
 	{
 		return OptionParser::int($this->get('DEAL_reanalyzedays'), static::DEFAULT_REANALYZE_DAYS, 1, 365);

@@ -132,20 +132,20 @@ Check::group('шкала');
 $scale = Profile::fromRow(['IS_ENABLED' => 'Y', 'LOW_BORDER' => 40, 'HIGH_BORDER' => 70, 'SENIOR_ID' => 7]);
 $v = static fn(int $risk, bool $senior = true): Verdict => Verdict::fromArray(['risk' => $risk, 'needSenior' => $senior]);
 $d = static fn(Verdict $verdict, int $manager = 3, int $open = 0, bool $managerRecent = false, bool $seniorRecent = false, ?Profile $profile = null): array => (array)RiskScale::decide($verdict, $profile ?? $scale, $manager, $open, $managerRecent, $seniorRecent);
-$none = ['managerTodo' => false, 'comment' => false, 'seniorTodo' => false, 'seniorMissing' => false];
+$none = ['managerTodo' => false, 'comment' => false, 'seniorTodo' => false, 'seniorMissing' => false, 'seniorOverdueTodo' => false];
 
 Check::same('ниже LOW — ничего', $d($v(39)), $none);
 Check::same('ровно LOW, дел нет — дело менеджеру', $d($v(40)), ['managerTodo' => true] + $none);
 Check::same('LOW, но есть запланированное дело — ничего', $d($v(60), 3, 1), $none);
 Check::same('LOW, ответственного нет — ничего', $d($v(60), 0), $none);
-Check::same('HIGH и needSenior, дел нет — менеджер, комментарий, старший', $d($v(70)), ['managerTodo' => true, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false]);
-Check::same('HIGH и needSenior, дела есть — только старший', $d($v(90), 3, 2), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false]);
+Check::same('HIGH и needSenior, дел нет — менеджер, комментарий, старший', $d($v(70)), ['managerTodo' => true, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false, 'seniorOverdueTodo' => false]);
+Check::same('HIGH и needSenior, дела есть — только старший', $d($v(90), 3, 2), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false, 'seniorOverdueTodo' => false]);
 Check::same('HIGH без needSenior — уровень менеджера', $d($v(90, false)), ['managerTodo' => true] + $none);
-Check::same('менеджер и есть старший — одно дело', $d($v(90), 7), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false]);
+Check::same('менеджер и есть старший — одно дело', $d($v(90), 7), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => true, 'seniorMissing' => false, 'seniorOverdueTodo' => false]);
 Check::same('менеджер = старший, но эскалация недавно — дело менеджеру', $d($v(90), 7, 0, false, true), ['managerTodo' => true] + $none);
 Check::same('дело менеджеру недавно — не повторяем', $d($v(60), 3, 0, true), $none);
 Check::same('эскалация недавно — не повторяем', $d($v(90), 3, 1, false, true), $none);
-Check::same('старший не задан — комментарий и пометка', $d($v(90), 3, 1, false, false, Profile::fromRow(['LOW_BORDER' => 40, 'HIGH_BORDER' => 70])), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => false, 'seniorMissing' => true]);
+Check::same('старший не задан — комментарий и пометка', $d($v(90), 3, 1, false, false, Profile::fromRow(['LOW_BORDER' => 40, 'HIGH_BORDER' => 70])), ['managerTodo' => false, 'comment' => true, 'seniorTodo' => false, 'seniorMissing' => true, 'seniorOverdueTodo' => false]);
 Check::same('пропущенная сделка — никогда', $d(Verdict::skipped('в работе')), $none);
 Check::same('LOW = HIGH (после переноса): ниже — ничего', $d($v(69), 3, 0, false, false, Profile::fromRow(['LOW_BORDER' => 70, 'HIGH_BORDER' => 70, 'SENIOR_ID' => 7])), $none);
 
@@ -176,11 +176,53 @@ DealCheckTable::init();
 Check::same('проверки до 1.1.0: дописаны столбцы', $connection->queries, [
 	'ALTER TABLE shef_toolsai_deal_check ADD COLUMN MANAGER_TODO_AT DATETIME NULL',
 	'ALTER TABLE shef_toolsai_deal_check ADD COLUMN PROFILE_ID INT(11) NOT NULL DEFAULT 0',
+	'ALTER TABLE shef_toolsai_deal_check ADD COLUMN OVERDUE_NOTIFIED_AT DATETIME NULL',
 ]);
 $connection->fields = [];
 $connection->queries = [];
 DealCheckTable::init();
 Check::same('столбцы уже есть — ничего', $connection->queries, []);
+
+$connection->tables = ['shef_toolsai_deal_profile'];
+$connection->fields = ['shef_toolsai_deal_profile' => ['ID', 'TITLE', 'SENIOR_ID']];
+$connection->queries = [];
+DealProfileTable::init();
+Check::same('профили до 1.4.0: дописан ACTIVE_DAYS', $connection->queries, ['ALTER TABLE shef_toolsai_deal_profile ADD COLUMN ACTIVE_DAYS INT(11) NOT NULL DEFAULT 60']);
+$connection->fields = [];
+$connection->queries = [];
+DealProfileTable::init();
+Check::same('ACTIVE_DAYS уже есть — ничего', $connection->queries, []);
 $connection->tables = [];
+$connection->queries = [];
+DealProfileTable::init();
+Check::same('новая таблица — с ACTIVE_DAYS', str_contains($connection->queries[0] ?? '', 'ACTIVE_DAYS INT(11) NOT NULL DEFAULT 60'), true);
+$connection->tables = [];
+
+Check::group('живые сделки: ACTIVE_DAYS');
+
+Check::same('по умолчанию 60', Profile::fromRow([])->activeDays, 60);
+Check::same('0 — без ограничения', Profile::fromRow(['ACTIVE_DAYS' => '0'])->activeDays, 0);
+Check::same('форма: 90', Profile::fromInput(['TITLE' => 'x', 'ACTIVE_DAYS' => '90'])[0]['ACTIVE_DAYS'], 90);
+Check::same('форма: мусор — ошибка', Profile::fromInput(['TITLE' => 'x', 'ACTIVE_DAYS' => '-5'])[1], ['ACTIVE_DAYS']);
+$p = static fn(int $cat, int $days, string $on = 'Y'): Profile => Profile::fromRow(['CATEGORY_ID' => $cat, 'ACTIVE_DAYS' => $days, 'IS_ENABLED' => $on]);
+Check::same(
+	'выборка: самый мягкий срок направления, 0 побеждает, выключенные не в счёт',
+	ProfilePicker::getCategoryActiveDays([$p(1, 30), $p(1, 90), $p(2, 60), $p(2, 0), $p(3, 10), $p(3, 500, 'N')]),
+	[1 => 90, 2 => 0, 3 => 10]
+);
+
+Check::group('шкала: просрочка');
+
+$o = static fn(Verdict $verdict, int $manager = 3, int $open = 0, int $overdue = 2, bool $overdueRecent = false, ?Profile $profile = null, bool $managerRecent = false): array => (array)RiskScale::decide($verdict, $profile ?? $scale, $manager, $open, $managerRecent, false, $overdue, $overdueRecent);
+Check::same('LOW, просрочено 2, запланированных нет — менеджеру и старшему', $o($v(50)), array_replace($none, ['managerTodo' => true, 'seniorOverdueTodo' => true]));
+Check::same('просрочек нет — только менеджеру', $o($v(50), 3, 0, 0), array_replace($none, ['managerTodo' => true]));
+Check::same('есть запланированное — никому', $o($v(50), 3, 1), $none);
+Check::same('ниже LOW — никому, даже с просрочкой', $o($v(10)), $none);
+Check::same('старшему о просрочке писали недавно — только менеджеру', $o($v(50), 3, 0, 2, true), array_replace($none, ['managerTodo' => true]));
+Check::same('дело менеджеру недавно — и старшему нет', $o($v(50), 3, 0, 2, false, null, true), $none);
+Check::same('старший не задан — только менеджеру', $o($v(50), 3, 0, 2, false, Profile::fromRow(['LOW_BORDER' => 40, 'HIGH_BORDER' => 70])), array_replace($none, ['managerTodo' => true]));
+Check::same('старший и есть менеджер — одно дело', $o($v(50), 7), array_replace($none, ['managerTodo' => true]));
+Check::same('эскалация старшему уже идёт — второго дела нет', $o($v(90)), array_replace($none, ['managerTodo' => true, 'comment' => true, 'seniorTodo' => true]));
+Check::same('мёртвая сделка (риск 100, без needSenior) с просрочкой — менеджеру и старшему', $o($v(100, false)), array_replace($none, ['managerTodo' => true, 'seniorOverdueTodo' => true]));
 
 Check::finish();

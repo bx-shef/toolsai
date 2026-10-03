@@ -2,7 +2,12 @@
 
 namespace Shef\ToolsAi\Agent;
 
+use Bitrix\Crm\ActivityBindingTable;
+use Bitrix\Crm\ActivityTable;
 use Bitrix\Crm\DealTable;
+use Bitrix\Crm\PhaseSemantics;
+use Bitrix\Main\Application;
+use Bitrix\Main\DB\SqlExpression;
 use Bitrix\Main\Loader;
 use Bitrix\Main\ORM\Fields\Relations\Reference;
 use Bitrix\Main\ORM\Query\Join;
@@ -83,6 +88,20 @@ final class DealHealthAgent
 		if(!Container::getConfig()->isDealHealthEnabled() || !Loader::includeModule('crm'))
 		{
 			return $self;
+		}
+
+		// До DEAL_maxperrun (50) запросов к модели по 2-4 с, а при сбоях —
+		// до таймаута провайдера: прогон идёт минуты. Агент на хитах
+		// (не на cron) иначе упёрся бы в max_execution_time посреди сделки
+		// — оплаченный ответ без записи о проверке. Рекомендация — агенты
+		// на cron (docs/02-deal-health.md, «Время прогона»).
+		if(function_exists('set_time_limit'))
+		{
+			@set_time_limit(0);
+		}
+		if(function_exists('ignore_user_abort'))
+		{
+			@ignore_user_abort(true);
 		}
 
 		try
@@ -308,8 +327,10 @@ final class DealHealthAgent
 						$facts->openActivities,
 						$isRecent($check['MANAGER_TODO_AT'] ?? null),
 						$isRecent($check['ESCALATED_AT'] ?? null),
+						$facts->overdueActivities,
+						$isRecent($check['OVERDUE_NOTIFIED_AT'] ?? null),
 					);
-					$escalated = $escalation->apply($dealId, $verdict, $profile, $decision, $facts->assignedById);
+					$escalated = $escalation->apply($dealId, $verdict, $profile, $decision, $facts->assignedById, $facts);
 				}
 				catch(\Throwable $throwable)
 				{
@@ -334,6 +355,10 @@ final class DealHealthAgent
 			if(in_array('manager_todo', $escalated, true))
 			{
 				$fields['MANAGER_TODO_AT'] = new DateTime();
+			}
+			if(in_array('overdue_todo', $escalated, true))
+			{
+				$fields['OVERDUE_NOTIFIED_AT'] = new DateTime();
 			}
 			static::saveCheck($dealId, $fields, $logger);
 
@@ -367,6 +392,15 @@ final class DealHealthAgent
 	 * проверялись: сначала непроверенные, потом самые давние. Срок повтора —
 	 * самый короткий REANALYZE_DAYS среди профилей направления.
 	 *
+	 * С 1.4.0 ещё два отсева прямо в SQL, чтобы мёртвые и закрытые не
+	 * занимали лимит прогона:
+	 *   - финальная стадия (STAGE_SEMANTIC_ID S/F, crm PhaseSemantics), даже
+	 *     если CLOSED = 'N' (бывает после переноса или ручной правки);
+	 *   - нет активности дольше ACTIVE_DAYS (самый мягкий срок направления,
+	 *     ProfilePicker::getCategoryActiveDays()): сделка создана позже
+	 *     границы или у неё есть дело, созданное позже границы не служебным
+	 *     пользователем агента. Точная проверка по профилю — DealFacts::isAlive().
+	 *
 	 * @return int[]
 	 */
 	public static function getCandidates(): array
@@ -382,10 +416,11 @@ final class DealHealthAgent
 			return [];
 		}
 
+		$activeDays = ProfilePicker::getCategoryActiveDays(DealProfileTable::getProfiles(true));
 		$byCategory = ['LOGIC' => 'OR'];
 		foreach($days as $categoryId => $reanalyzeDays)
 		{
-			$byCategory[] = [
+			$condition = [
 				'=CATEGORY_ID' => $categoryId,
 				[
 					'LOGIC' => 'OR',
@@ -393,12 +428,28 @@ final class DealHealthAgent
 					['<CHECK.CHECKED_AT' => DateTime::createFromTimestamp(time() - $reanalyzeDays * 86400)],
 				],
 			];
+			$alive = (int)($activeDays[$categoryId] ?? 0);
+			if($alive > 0)
+			{
+				$border = DateTime::createFromTimestamp(time() - $alive * 86400);
+				$condition[] = [
+					'LOGIC' => 'OR',
+					['>=DATE_CREATE' => $border],
+					['@ID' => new SqlExpression(static::getAliveSql($border, Container::getAgentUserId()))],
+				];
+			}
+			$byCategory[] = $condition;
 		}
 
 		$rows = DealTable::getList([
 			'select' => ['ID'],
 			'filter' => [
 				'=CLOSED' => 'N',
+				[
+					'LOGIC' => 'OR',
+					['=STAGE_SEMANTIC_ID' => null],
+					['!@STAGE_SEMANTIC_ID' => [PhaseSemantics::SUCCESS, PhaseSemantics::FAILURE]],
+				],
 				$byCategory,
 			],
 			'runtime' => [
@@ -414,5 +465,24 @@ final class DealHealthAgent
 		])->fetchAll();
 
 		return array_map('intval', array_column($rows, 'ID'));
+	}
+
+	/**
+	 * Подзапрос: сделки, у которых есть дело, созданное не раньше $border и
+	 * не служебным пользователем агента (его дела менеджеру — не жизнь
+	 * сделки). Таблицы — по ORM ядра, дата — через SqlHelper.
+	 */
+	private static function getAliveSql(DateTime $border, int $ignoreAuthorId): string
+	{
+		$helper = Application::getConnection()->getSqlHelper();
+
+		return sprintf(
+			'SELECT B.OWNER_ID FROM %s B INNER JOIN %s A ON A.ID = B.ACTIVITY_ID WHERE B.OWNER_TYPE_ID = %d AND A.CREATED >= %s%s',
+			ActivityBindingTable::getTableName(),
+			ActivityTable::getTableName(),
+			\CCrmOwnerType::Deal,
+			$helper->convertToDbDateTime($border),
+			$ignoreAuthorId > 0 ? ' AND A.AUTHOR_ID <> '.$ignoreAuthorId : ''
+		);
 	}
 }

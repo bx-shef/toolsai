@@ -85,4 +85,32 @@ final class ProfilePicker
 
 		return $result;
 	}
+
+	/**
+	 * Срок «живой» сделки по направлению — для выборки кандидатов (SQL):
+	 * самый мягкий среди включённых профилей направления, чтобы выборка не
+	 * отсекла сделку, которую взял бы другой профиль. Есть профиль без
+	 * ограничения (0) — у направления ограничения нет. Точная проверка по
+	 * профилю самой сделки — DealFacts::isAlive().
+	 *
+	 * @param Profile[] $profiles
+	 * @return array<int, int> ID направления => дней, 0 — без ограничения
+	 */
+	public static function getCategoryActiveDays(array $profiles): array
+	{
+		$result = [];
+		foreach($profiles as $profile)
+		{
+			if(!$profile->enabled)
+			{
+				continue;
+			}
+
+			$current = $result[$profile->categoryId] ?? null;
+			$result[$profile->categoryId] = ($current === 0 || $profile->activeDays === 0) ? 0 : max($current ?? 0, $profile->activeDays);
+		}
+		ksort($result);
+
+		return $result;
+	}
 }

@@ -17,5 +17,6 @@ $shef_toolsai_default_option = [
 	'API_ownprompts' => 'N',
 	'API_timeout' => '120',
 	'DEAL_enabled' => 'N',
-	'DEAL_maxperrun' => '20',
+	'DEAL_maxperrun' => '50',
+	'DEAL_interval' => '60',
 ];

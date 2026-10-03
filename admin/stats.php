@@ -112,6 +112,13 @@ $dealTodo = $connection->query('
 	WHERE '.$in('MANAGER_TODO_AT').' OR '.$in('ESCALATED_AT')
 )->fetch() ?: [];
 
+// Дела старшему о просрочке (1.4.0) — столбца нет, пока таблицу не
+// обновили (агент, «Проверить и включить»): тогда цифры нет.
+$hasOverdue = array_key_exists('OVERDUE_NOTIFIED_AT', array_change_key_case((array)$connection->getTableFields($checkTable), CASE_UPPER));
+$dealOverdue = $hasOverdue ? ($connection->query('
+	SELECT COUNT(*) AS CNT FROM '.$helper->quote($checkTable).' WHERE '.$in('OVERDUE_NOTIFIED_AT')
+)->fetch() ?: []) : null;
+
 $dealGroup = static fn(string $groupBy, string $join): string => '
 	SELECT '.$groupBy.' AS GRP,
 		SUM(CASE WHEN '.$in('c.CHECKED_AT').' THEN 1 ELSE 0 END) AS CNT,
@@ -222,7 +229,8 @@ $avg = static fn(mixed $value): string => $value === null ? '—' : (string)(int
 		<?=$msg('DEALS_ANALYZED')?>: <b><?=$int($deals['ANALYZED'] ?? 0)?></b>,
 		<?=$msg('DEALS_SKIPPED')?>: <b><?=$int($deals['SKIPPED_CNT'] ?? 0)?></b></li>
 	<li><?=$msg('DEALS_TODO')?>: <b><?=$int($dealTodo['TODO'] ?? 0)?></b>,
-		<?=$msg('DEALS_ESC')?>: <b><?=$int($dealTodo['ESC'] ?? 0)?></b></li>
+		<?=$msg('DEALS_ESC')?>: <b><?=$int($dealTodo['ESC'] ?? 0)?></b><?php if($dealOverdue !== null): ?>,
+		<?=$msg('DEALS_OVERDUE')?>: <b><?=$int($dealOverdue['CNT'] ?? 0)?></b><?php endif; ?></li>
 </ul>
 <p style="color:#777"><?=$msg('DEALS_NOTE')?></p>
 <?php foreach(['MANAGER' => $byManager, 'PROFILE' => $byProfile] as $kind => $rows): ?>
