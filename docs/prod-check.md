@@ -101,11 +101,25 @@ BX php -f ai-call-autostart-diag.php | tee /tmp/toolsai-diag-before.txt
 
 ## Шаг 1. Модули
 
-`shef.options` 3.0+, `shef.problems` 2.0+, `shef.toolsai` из `main` (или
-тега). Архивы — `./build.sh` в каждом репозитории, распаковать в
-`bitrix/modules/`, поставить в **Настройки → Модули** по порядку. Уже стоят
-— обновить файлы и прогнать «Проверить и включить» (установщик повторно не
-нужен).
+Файлы — **Composer'ом**, по [composer.md](composer.md): `composer.json`
+вне корня сайта (BitrixVM — `/home/bitrix/composer.json`, `"bitrix-dir":
+"www/bitrix"`), `bxshef/toolsai` `1.x-dev` из репозитория GitHub, запуск —
+**от пользователя веб-сервера**:
+
+```bash
+cd /home/bitrix && sudo -u bitrix composer install --no-dev --no-interaction
+ls /home/bitrix/www/bitrix/modules | grep shef   # options, problems, toolsai
+```
+
+Уже есть `composer.json` проекта — **не перезаписывать**: добавить в него
+`repositories`, `require`, `allow-plugins`, `bitrix-dir` и показать дифф
+человеку до `composer install`. В отчёт — `composer.lock`: какие коммиты
+`bxshef/*` встали.
+
+Затем **Настройки → Модули** — установить по порядку `shef.options` →
+`shef.problems` → `shef.toolsai`. Уже стоят — только обновить файлы
+(`composer update 'bxshef/*'`) и прогнать «Проверить и включить»
+(установщик повторно не нужен).
 
 **Ожидается:** отчёт установки — только ✔ `token` и обе `page …`. Портал
 установка не меняет (решение владельца).
