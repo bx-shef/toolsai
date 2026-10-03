@@ -601,4 +601,30 @@ $chat = new ChatProvider($config($own), new Llm($config($own), new Client($confi
 $chat->run($copilot('extract_form_fields', $fieldsMarkers));
 Check::same('поля: max_tokens не задаётся (умолчание провайдера)', array_key_exists('max_tokens', json_decode($transport->sent[0]['body'], true)), false);
 
+Check::group('json_object: починка типичных огрехов модели (#11: 6484 симв., stop, не JSON)');
+
+Check::same('repairJson: прямая кавычка цитаты', json_decode(Llm::repairJson('{"a": "сказал "добрый день" сразу"}'), true), ['a' => 'сказал "добрый день" сразу']);
+Check::same('repairJson: запятая внутри цитаты', json_decode(Llm::repairJson('{"a": "сказал "да", потом ушёл", "b": 1}'), true), ['a' => 'сказал "да", потом ушёл', 'b' => 1]);
+Check::same('repairJson: двоеточие внутри цитаты', json_decode(Llm::repairJson('{"a": "он сказал "цена: 27" и ушёл"}'), true), ['a' => 'он сказал "цена: 27" и ушёл']);
+Check::same('repairJson: перенос строки и таб в значении', json_decode(Llm::repairJson("{\"a\": \"строка\nвторая\tтаб\"}"), true), ['a' => "строка\nвторая\tтаб"]);
+Check::same('repairJson: уже экранированное не трогает', Llm::repairJson('{"a": "уже \"так\" и \\\\ слэш"}'), '{"a": "уже \"так\" и \\\\ слэш"}');
+
+$transport = new FakeTransport();
+$transport->responses = [$answer("{\"call_review\": {\"criteria\": [{\"criterion\": \"Поздоровался\", \"status\": true, \"explanation\": \"Сказал \"Добрый день, магазин\"\nсразу\"}]}, \"overall_summary\": \"ок\", \"recommendations\": \"нет\"}")];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = $chat->run($copilot('call_scoring', $scoringMarkers));
+Check::same('оценка: ответ с прямыми кавычками и переносом — починен с первой попытки', [count($transport->sent), json_decode($result->text, true)['call_review']['criteria'][0]['explanation'] ?? null], [1, "Сказал \"Добрый день, магазин\"\nсразу"]);
+$system = json_decode($transport->sent[0]['body'], true)['messages'][0]['content'];
+Check::same(
+	'оценка: инструкция описывает формат точно — RFC 8259, пример, «ёлочки», без переносов, число критериев',
+	[str_contains($system, 'RFC 8259'), str_contains($system, 'Пример правильного ответа'), str_contains($system, 'в «ёлочки»'), str_contains($system, 'без переносов строк') || str_contains($system, 'не делай переносов строк'), str_contains($system, 'ровно 3 элементов')],
+	[true, true, true, true, true]
+);
+Check::same('оценка: пример в инструкции — валидный JSON формы CRM', is_array(json_decode((string)preg_replace('/^.*Пример правильного ответа на два критерия:\n(\{.*?\})\n.*$/su', '$1', $system), true)['call_review']['criteria'] ?? null), true);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"a": [1, 2'), $answer('{"a": [1, 2')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+Check::same('оценка: не чинится — в ошибке тип ошибки разбора', str_contains((string)$errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->getMessage(), 'разбор: '), true);
+
 Check::finish();
