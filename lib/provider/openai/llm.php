@@ -187,8 +187,10 @@ final class Llm implements LlmProviderInterface
 				$object = substr($result->text, $start, $end - $start + 1);
 				$json = static::extractJson($object);
 				// Частый огрех модели — прямые кавычки цитаты и переносы строк
-				// внутри значений (боевой портал, #11: 6484 симв., stop, не JSON).
-				if($json === null)
+				// внутри значений (боевой портал, #11: 6484 симв., stop, не JSON)
+				// и незакрытая скобка. Обрезанный ответ (length) не чиним: ему
+				// не хватает данных, а не скобки, — только повтор.
+				if($json === null && $result->finishReason !== 'length')
 				{
 					$jsonError = json_last_error_msg();
 					$json = static::extractJson(static::repairJson($object));
@@ -204,11 +206,12 @@ final class Llm implements LlmProviderInterface
 		// разговора; форма ответа достаточна, чтобы понять причину.
 		throw new ProviderException(
 			sprintf(
-				'Модель вернула не JSON-объект (попыток %d; последний ответ: %d симв., finish_reason %s; разбор: %s)',
+				'Модель вернула не JSON-объект (попыток %d; последний ответ: %d симв., finish_reason %s; разбор: %s; %s)',
 				self::JSON_OBJECT_ATTEMPTS,
 				mb_strlen((string)$result?->text),
 				($result?->finishReason ?? '') !== '' ? $result->finishReason : '—',
-				$jsonError ?? 'не объект'
+				$jsonError ?? 'не объект',
+				static::describeBrackets((string)$result?->text)
 			),
 			'provider_bad_response',
 			null,
@@ -293,21 +296,21 @@ final class Llm implements LlmProviderInterface
 	}
 
 	/**
-	 * JSON из ответа модели. Часть совместимых серверов response_format
-	 * игнорирует и заворачивает ответ в ```json ... ``` — снимаем обёртку.
-	 */
-	/**
-	 * Починка JSON-объекта от типичных огрехов модели внутри строк: прямая
-	 * кавычка цитаты («сказал "добрый день"») и сырые управляющие символы
-	 * (перенос строки, таб). Кавычка внутри строки считается закрывающей,
-	 * только если за ней (через пробелы) идёт , : } ] или конец текста;
-	 * иначе — экранируется. Структуру не угадываем: что не починилось,
-	 * json_decode отвергнет.
+	 * Починка JSON-объекта от типичных огрехов модели: прямая кавычка цитаты
+	 * («сказал "добрый день"») и сырые управляющие символы (перенос строки,
+	 * таб) внутри строк, незакрытые скобки в конце. Кавычка внутри строки
+	 * считается закрывающей, только если за ней (через пробелы) идёт
+	 * , : } ] или конец текста; иначе — экранируется. Скобки, которые к концу
+	 * текста остались открытыми, дописываются в нужном порядке (боевой
+	 * портал, #11: модель не закрыла call_review — «{» 28, «}» 27). Порядок
+	 * ключей не угадываем: что не починилось, json_decode отвергнет.
 	 */
 	public static function repairJson(string $text): string
 	{
 		$out = '';
 		$inString = false;
+		/** @var list<string> $closers скобки, которые ещё надо закрыть */
+		$closers = [];
 		$length = strlen($text);
 		for($i = 0; $i < $length; $i++)
 		{
@@ -318,6 +321,14 @@ final class Llm implements LlmProviderInterface
 				if($char === '"')
 				{
 					$inString = true;
+				}
+				elseif($char === '{' || $char === '[')
+				{
+					$closers[] = $char === '{' ? '}' : ']';
+				}
+				elseif(($char === '}' || $char === ']') && end($closers) === $char)
+				{
+					array_pop($closers);
 				}
 				continue;
 			}
@@ -360,9 +371,55 @@ final class Llm implements LlmProviderInterface
 			};
 		}
 
+		// Строка не закрыта — ответ оборван, а не забыта скобка: не трогаем.
+		if(!$inString)
+		{
+			$out .= implode('', array_reverse($closers));
+		}
+
 		return $out;
 	}
 
+	/**
+	 * Сколько скобок открыто и закрыто вне строк — для текста ошибки: видно
+	 * незакрытую скобку, а текста разговора в сообщении нет.
+	 */
+	public static function describeBrackets(string $text): string
+	{
+		$count = ['{' => 0, '}' => 0, '[' => 0, ']' => 0];
+		$inString = false;
+		$length = strlen($text);
+		for($i = 0; $i < $length; $i++)
+		{
+			$char = $text[$i];
+			if($inString)
+			{
+				if($char === '\\')
+				{
+					$i++;
+				}
+				elseif($char === '"')
+				{
+					$inString = false;
+				}
+			}
+			elseif($char === '"')
+			{
+				$inString = true;
+			}
+			elseif(isset($count[$char]))
+			{
+				$count[$char]++;
+			}
+		}
+
+		return sprintf('скобки { %d/%d, [ %d/%d', $count['{'], $count['}'], $count['['], $count[']']);
+	}
+
+	/**
+	 * JSON из ответа модели. Часть совместимых серверов response_format
+	 * игнорирует и заворачивает ответ в ```json ... ``` — снимаем обёртку.
+	 */
 	public static function extractJson(string $text): ?array
 	{
 		$text = trim($text);
