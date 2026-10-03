@@ -16,6 +16,9 @@ final class Llm implements LlmProviderInterface
 	/** Провайдер отверг response_format json_schema — дальше сразу json_object. */
 	private bool $schemaRejected = false;
 
+	/** Провайдер отверг и json_object — дальше без response_format. */
+	private bool $jsonObjectRejected = false;
+
 	public function __construct(
 		private readonly Config $config,
 		private readonly Client $client,
@@ -111,6 +114,50 @@ final class Llm implements LlmProviderInterface
 		if($problem !== null)
 		{
 			throw new ProviderException('Ответ модели не по схеме: '.$problem, 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
+		}
+
+		return new LlmResult($result->text, $json, $result->tokensIn, $result->tokensOut, $result->costMicro);
+	}
+
+	/**
+	 * Ответ — JSON-объект с ключами, которых модуль заранее не знает
+	 * (заполнение полей CRM: имена полей приходят от ядра). Схемы нет,
+	 * поэтому json_object; провайдер его не знает (4xx) — один повтор без
+	 * response_format, инструкция про JSON и так в сообщениях. Ответ —
+	 * объект, иначе provider_bad_response с расходом.
+	 *
+	 * @param list<array{role: string, content: string}> $messages
+	 */
+	public function completeJsonObject(array $messages): LlmResult
+	{
+		if($messages === [])
+		{
+			throw new ProviderException('Пустой промпт: нечего отправлять модели', 'empty_prompt');
+		}
+
+		$payload = ['model' => $this->config->getLlmModel(), 'messages' => $messages];
+		$result = null;
+		if(!$this->jsonObjectRejected)
+		{
+			try
+			{
+				$result = $this->request($payload + ['response_format' => ['type' => 'json_object']]);
+			}
+			catch(ProviderException $exception)
+			{
+				if($exception->errorCode !== 'provider_error')
+				{
+					throw $exception;
+				}
+				$this->jsonObjectRejected = true;
+			}
+		}
+		$result ??= $this->request($payload);
+
+		$json = static::extractJson($result->text);
+		if($json === null || ($json !== [] && array_is_list($json)))
+		{
+			throw new ProviderException('Модель вернула не JSON-объект', 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
 		}
 
 		return new LlmResult($result->text, $json, $result->tokensIn, $result->tokensOut, $result->costMicro);

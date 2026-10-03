@@ -2,6 +2,7 @@
 
 namespace Shef\ToolsAi\Provider\OpenAi;
 
+use Shef\ToolsAi\Completion\CopilotPrompt;
 use Shef\ToolsAi\Completion\Request;
 use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Main\Constants;
@@ -11,8 +12,8 @@ use Shef\ToolsAi\Provider\Result;
 /**
  * Категория text: резюме звонка, заполнение полей, оценка разговора.
  *
- * Промпт собирает ядро (сценарии crm/lib/Copilot/Pipeline/Scenario/*),
- * здесь он только переводится в сообщения chat completions —
+ * Резюме звонка и заполнение полей — свои промпты (CopilotPrompt): промпты
+ * ядра на коробке обфусцированы. Остальное — промпт ядра как есть,
  * Request::getChatMessages().
  */
 final class ChatProvider implements ProviderInterface
@@ -38,7 +39,7 @@ final class ChatProvider implements ProviderInterface
 	public function estimateCostMicro(Request $request): int
 	{
 		$chars = 0;
-		foreach($request->getChatMessages() as $message)
+		foreach($this->getMessages($request) as $message)
 		{
 			$chars += mb_strlen($message['content']);
 		}
@@ -48,8 +49,22 @@ final class ChatProvider implements ProviderInterface
 
 	public function run(Request $request): Result
 	{
-		$result = $this->llm->complete($request->getChatMessages());
+		// Поля CRM разбирает как JSON: отдаём ровно объект, без обёрток.
+		if(CopilotPrompt::getCode($request) === CopilotPrompt::EXTRACT_FIELDS)
+		{
+			$result = $this->llm->completeJsonObject($this->getMessages($request));
+
+			return new Result($result->json === [] ? '{}' : (string)json_encode($result->json, JSON_UNESCAPED_UNICODE), $result->getTokens(), $result->costMicro);
+		}
+
+		$result = $this->llm->complete($this->getMessages($request));
 
 		return new Result($result->text, $result->getTokens(), $result->costMicro);
+	}
+
+	/** @return list<array{role: string, content: string}> */
+	private function getMessages(Request $request): array
+	{
+		return CopilotPrompt::getMessages($request) ?: $request->getChatMessages();
 	}
 }

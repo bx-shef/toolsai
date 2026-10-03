@@ -306,4 +306,124 @@ $transport = new FakeTransport();
 (new Client($config(['API_apikey' => '']), $transport))->postJson('x', []);
 Check::same('пустой ключ — без заголовка', array_key_exists('Authorization', $transport->sent[0]['headers']), false);
 
+Check::group('свои промпты Копилота: резюме и поля (bx-shef/toolsai#11)');
+
+$copilot = static fn(string $code, array $markers): Request => Request::fromArray(makeCoreRequest([
+	'category' => 'text',
+	'prompt' => '<1568-обфусцированный шаблон>',
+	'payload_provider' => 'prompt',
+	'payload_raw' => $code,
+	'payload_prompt_text' => '@switch <1568-…> шаблон без инструкций',
+	'payload_markers' => $markers + ['language' => 'ru'],
+]));
+$answer = static fn(string $content): Response => new Response(200, (string)json_encode([
+	'choices' => [['message' => ['content' => $content]]],
+	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 100],
+]));
+
+$transport = new FakeTransport();
+$transport->responses = [$answer("- Клиент хочет 20 стульев\n- Перезвонить в пятницу")];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$result = $chat->run($copilot('summarize_transcript', [
+	'original_message' => 'Менеджер: Добрый день. Клиент: Нужно 20 стульев.',
+	'company_name' => 'Мебель Плюс',
+	'manager_name' => 'Иван Петров',
+]));
+$sent = json_decode($transport->sent[0]['body'], true);
+Check::same('резюме — текст модели как есть', $result->text, "- Клиент хочет 20 стульев\n- Перезвонить в пятницу");
+Check::same(
+	'резюме: своя инструкция, транскрипт — сообщением пользователя, текст ядра не уходит',
+	[
+		$sent['messages'][0]['role'],
+		str_contains($sent['messages'][0]['content'], 'резюме'),
+		str_contains($sent['messages'][0]['content'], 'Иван Петров'),
+		str_contains($sent['messages'][0]['content'], 'русский'),
+		$sent['messages'][1],
+		str_contains((string)$transport->sent[0]['body'], '1568'),
+		isset($sent['response_format']),
+	],
+	['system', true, true, true, ['role' => 'user', 'content' => 'Менеджер: Добрый день. Клиент: Нужно 20 стульев.'], false, false]
+);
+
+$fieldsMarkers = [
+	'original_message' => '- Клиент хочет 20 стульев',
+	'fields' => ['Сумма' => 'double or null', 'Источник' => 'enumeration or null', 'comment' => 'list[string]'],
+	'enum_fields_values' => ['Источник' => ['звонок', 'сайт']],
+	'current_day' => '03', 'current_month' => '10', 'current_year' => '2026',
+];
+$transport = new FakeTransport();
+$transport->responses = [$answer("```json\n{\"Сумма\": 1500, \"Источник\": \"звонок\", \"comment\": [\"перезвонить в пятницу\"]}\n```")];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$result = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
+$sent = json_decode($transport->sent[0]['body'], true);
+Check::same('поля: ответ — голый JSON-объект, как ждёт CRM', $result->text, '{"Сумма":1500,"Источник":"звонок","comment":["перезвонить в пятницу"]}');
+Check::same('поля: расход — токены', $result->units, 1100);
+Check::same(
+	'поля: json_object, имена полей и значения списков — в инструкции, сегодняшняя дата',
+	[
+		$sent['response_format'] ?? null,
+		str_contains($sent['messages'][0]['content'], '"Сумма": "double or null"'),
+		str_contains($sent['messages'][0]['content'], '"сайт"'),
+		str_contains($sent['messages'][0]['content'], 'сегодня 03.10.2026'),
+		$sent['messages'][1]['content'],
+	],
+	[['type' => 'json_object'], true, true, true, '- Клиент хочет 20 стульев']
+);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{}')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+Check::same('поля: пустой объект — «{}», а не «[]» (CRM ищет фигурные скобки)', $chat->run($copilot('extract_form_fields', $fieldsMarkers))->text, '{}');
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('Не могу заполнить поля')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$error = $errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)));
+Check::same('поля: не JSON — provider_bad_response с оплаченным расходом', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('["a","b"]')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+Check::same('поля: массив вместо объекта — тоже провал', $errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)))?->errorCode, 'provider_bad_response');
+
+$transport = new FakeTransport();
+$transport->responses = [
+	new Response(400, '{"error":{"message":"response_format is not supported"}}'),
+	$answer('{"Сумма": 10}'),
+	$answer('{"Сумма": 20}'),
+];
+$llm = new Llm($config($options), new Client($config($options), $transport));
+$chat = new ChatProvider($config($options), $llm);
+$first = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
+$second = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
+Check::same(
+	'поля: json_object отвергнут (4xx) — повтор без response_format, дальше сразу так',
+	[$first->text, $second->text, count($transport->sent), isset(json_decode($transport->sent[1]['body'], true)['response_format']), isset(json_decode($transport->sent[2]['body'], true)['response_format'])],
+	['{"Сумма":10}', '{"Сумма":20}', 3, false, false]
+);
+
+$transport = new FakeTransport();
+$transport->responses = [new Response(401, '{"error":{"message":"bad key"}}')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+Check::same('поля: 401 — без повтора', [$errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)))?->errorCode, count($transport->sent)], ['provider_auth', 1]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('Ответ')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$chat->run($copilot('call_scoring', ['original_message' => 'текст']));
+Check::same('чужой код промпта — старый путь: текст ядра как есть', json_decode($transport->sent[0]['body'], true)['messages'], [['role' => 'user', 'content' => '<1568-обфусцированный шаблон>']]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('Ответ')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$chat->run($copilot('summarize_transcript', ['original_message' => '  ']));
+Check::same('нет текста звонка — старый путь', json_decode($transport->sent[0]['body'], true)['messages'][0]['content'], '<1568-обфусцированный шаблон>');
+
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), new FakeTransport())));
+Check::same(
+	'оценка расхода — по своим сообщениям, а не по шаблону ядра',
+	$chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => str_repeat('а', 2000)])) > $chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => 'а'])),
+	true
+);
+
 Check::finish();

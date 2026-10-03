@@ -9,7 +9,7 @@ final class LlmResult
 {
 	public function __construct(
 		public readonly string $text,
-		/** Разобранный JSON — только у completeJson(). */
+		/** Разобранный JSON — только у completeJson() и completeJsonObject(). */
 		public readonly ?array $json = null,
 		public readonly int $tokensIn = 0,
 		public readonly int $tokensOut = 0,
