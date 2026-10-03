@@ -14,6 +14,7 @@ $shef_toolsai_default_option = [
 	'API_asrmodel' => 'whisper-1',
 	'API_llmmodel' => 'gpt-4o-mini',
 	'API_llmextra' => '',
+	'API_ownprompts' => 'N',
 	'API_timeout' => '120',
 	'DEAL_enabled' => 'N',
 	'DEAL_threshold' => '70',

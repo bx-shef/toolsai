@@ -235,6 +235,17 @@ Guard проверяет, что в коде модуля нет строки `a
 **Наш `Request::fromArray()` намеренно терпим:** любой отсутствующий ключ даёт
 пустое значение, а не падение. Проверять содержательно — задача guard.
 
+### 11а. Промпты текстовой цепочки CRM
+
+Готовый `prompt` против сырого `payload_prompt_text`, коды
+`summarize_transcript`/`extract_form_fields`, маркеры (`original_message`,
+`fields`, `enum_fields_values`, `current_*`, `language` названием) и разбор
+ответа полей (`extractPayloadPrettifiedData`, ключи по `NAME`, `comment`) —
+[01-engine-contract.md](01-engine-contract.md), «text: резюме звонка и
+заполнение полей». Поменялось — заполнение полей молча станет
+`PAYLOAD_IS_EMPTY`. После обновления crm — один звонок, FillFields в
+`b_crm_ai_queue` без ошибки.
+
 ### 12. Таймаут 5 секунд
 
 `ThirdParty.php:24`. Если Битрикс его увеличит — нам только легче. Если

@@ -12,9 +12,8 @@ use Shef\ToolsAi\Provider\Result;
 /**
  * Категория text: резюме звонка, заполнение полей, оценка разговора.
  *
- * Резюме звонка и заполнение полей — свои промпты (CopilotPrompt): промпты
- * ядра на коробке обфусцированы. Остальное — промпт ядра как есть,
- * Request::getChatMessages().
+ * Промпт ядра — Request::getChatMessages(). Резюме звонка и заполнение
+ * полей — свои промпты (CopilotPrompt), если они включены настройкой.
  */
 final class ChatProvider implements ProviderInterface
 {
@@ -49,12 +48,24 @@ final class ChatProvider implements ProviderInterface
 
 	public function run(Request $request): Result
 	{
-		// Поля CRM разбирает как JSON: отдаём ровно объект, без обёрток.
-		if(CopilotPrompt::getCode($request) === CopilotPrompt::EXTRACT_FIELDS)
+		// Поля CRM разбирает как JSON: отдаём ровно объект, без обёрток, и
+		// только ключи, которые CRM знает (полей из маркера и comment): лишнее
+		// ей не нужно, а модель могли уговорить в разговоре.
+		if($this->getOwnCode($request) === CopilotPrompt::EXTRACT_FIELDS)
 		{
 			$result = $this->llm->completeJsonObject($this->getMessages($request));
+			$json = (array)$result->json;
+			$names = CopilotPrompt::getFieldNames($request);
+			if($names !== [])
+			{
+				$json = array_intersect_key($json, array_flip($names));
+			}
 
-			return new Result($result->json === [] ? '{}' : (string)json_encode($result->json, JSON_UNESCAPED_UNICODE), $result->getTokens(), $result->costMicro);
+			return new Result(
+				$json === [] ? '{}' : (string)json_encode($json, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+				$result->getTokens(),
+				$result->costMicro
+			);
 		}
 
 		$result = $this->llm->complete($this->getMessages($request));
@@ -62,9 +73,15 @@ final class ChatProvider implements ProviderInterface
 		return new Result($result->text, $result->getTokens(), $result->costMicro);
 	}
 
+	/** Код своего промпта, если свои промпты включены и код наш. */
+	private function getOwnCode(Request $request): ?string
+	{
+		return $this->config->isOwnPromptsEnabled() ? CopilotPrompt::getCode($request) : null;
+	}
+
 	/** @return list<array{role: string, content: string}> */
 	private function getMessages(Request $request): array
 	{
-		return CopilotPrompt::getMessages($request) ?: $request->getChatMessages();
+		return ($this->getOwnCode($request) !== null ? CopilotPrompt::getMessages($request) : []) ?: $request->getChatMessages();
 	}
 }

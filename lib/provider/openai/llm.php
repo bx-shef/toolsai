@@ -154,7 +154,13 @@ final class Llm implements LlmProviderInterface
 		}
 		$result ??= $this->request($payload);
 
+		// Без response_format модель может обернуть объект текстом — берём, как
+		// CRM: от первой «{» до последней «}» (extractPayloadPrettifiedData).
 		$json = static::extractJson($result->text);
+		if($json === null && ($start = strpos($result->text, '{')) !== false && ($end = strrpos($result->text, '}')) > $start)
+		{
+			$json = static::extractJson(substr($result->text, $start, $end - $start + 1));
+		}
 		if($json === null || ($json !== [] && array_is_list($json)))
 		{
 			throw new ProviderException('Модель вернула не JSON-объект', 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
