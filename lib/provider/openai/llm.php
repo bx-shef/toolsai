@@ -199,7 +199,9 @@ final class Llm implements LlmProviderInterface
 
 	private function request(array $payload): LlmResult
 	{
-		$data = $this->client->postJson('chat/completions', $payload);
+		// Дополнительные параметры провайдера (выключить рассуждения и т. п.)
+		// — поверх, но без модели, сообщений и формата ответа.
+		$data = $this->client->postJson('chat/completions', $payload + $this->config->getLlmExtra());
 
 		$content = $data['choices'][0]['message']['content'] ?? null;
 		if(!is_string($content))

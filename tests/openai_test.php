@@ -286,6 +286,11 @@ $spent = $errorOf(static fn() => (new Llm($config($options), new Client($config(
 Check::same('негодный ответ оплачен — расход едет с ошибкой', [$spent?->spentUnits, $spent?->spentMicro], [1010, 156]);
 Check::same('80.0 — целое (json_object так отвечает)', Llm::validate(['risk' => 80.0, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema), null);
 Check::same('80.5 — не целое', Llm::validate(['risk' => 80.5, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema) !== null, true);
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, '{"choices":[{"message":{"content":"ok"}}]}')];
+(new Llm($config($options + ['API_llmextra' => '{"thinking":{"type":"disabled"},"model":"evil"}']), new Client($config($options), $transport)))->complete([['role' => 'user', 'content' => 'x']]);
+$sent = json_decode($transport->sent[0]['body'], true);
+Check::same('доп. параметры — в запросе, модель не перекрыта', [$sent['thinking'] ?? null, $sent['model']], [['type' => 'disabled'], 'gpt-test']);
 Check::same('лишний ключ — не ошибка', Llm::validate(['risk' => 1, 'needSenior' => false, 'why' => '', 'nextStep' => '', 'x' => 1], $schema), null);
 
 $transport = new FakeTransport();

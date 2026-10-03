@@ -130,4 +130,16 @@ Check::same('порог выше 100 — умолчание', $config(['DEAL_thr
 Check::same('анализ выключен по умолчанию', $config([])->isDealHealthEnabled(), false);
 Check::same('направления не выбраны — []', $config([])->getDealCategories(), []);
 
+Check::group('дополнительные параметры модели текста (bx-shef/toolsai#12)');
+
+Check::same('пусто — ничего', [$config([])->getLlmExtra(), $config([])->isLlmExtraBroken()], [[], false]);
+Check::same(
+	'JSON-объект — как есть, без модели, сообщений и формата',
+	$config(['API_llmextra' => '{"thinking":{"type":"disabled"},"model":"x","messages":[],"response_format":{}}'])->getLlmExtra(),
+	['thinking' => ['type' => 'disabled']]
+);
+Check::same('не JSON — пусто и сломано', [$config(['API_llmextra' => '{thinking'])->getLlmExtra(), $config(['API_llmextra' => '{thinking'])->isLlmExtraBroken()], [[], true]);
+Check::same('список — сломано', $config(['API_llmextra' => '[1]'])->isLlmExtraBroken(), true);
+Check::same('только защищённые ключи — не сломано, просто пусто', $config(['API_llmextra' => '{"model":"x"}'])->isLlmExtraBroken(), false);
+
 Check::finish();

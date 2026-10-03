@@ -96,6 +96,11 @@ if($usesApi)
 	$line($config->getApiKey() !== '' ? 'OK' : 'WARN', 'ключ API', $mask($config->getApiKey()));
 	$line('OK', 'модели', 'asr='.$config->getAsrModel().', llm='.$config->getLlmModel());
 	$line(
+		$config->isLlmExtraBroken() ? 'FAIL' : 'OK',
+		'доп. параметры модели текста',
+		$config->isLlmExtraBroken() ? 'не JSON-объект — не применяются' : ((string)json_encode($config->getLlmExtra(), JSON_UNESCAPED_UNICODE) ?: '{}')
+	);
+	$line(
 		$config->getAsrPricePerMinuteMicro() > 0 ? 'OK' : 'WARN',
 		'цены',
 		sprintf(
