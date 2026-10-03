@@ -6,6 +6,7 @@ use Shef\ToolsAi\Completion\CopilotPrompt;
 use Shef\ToolsAi\Completion\Request;
 use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Main\Constants;
+use Shef\ToolsAi\Provider\ProviderException;
 use Shef\ToolsAi\Provider\ProviderInterface;
 use Shef\ToolsAi\Provider\Result;
 
@@ -72,9 +73,17 @@ final class ChatProvider implements ProviderInterface
 		if($this->getOwnCode($request) === CopilotPrompt::CALL_SCORING)
 		{
 			$result = $this->llm->completeJsonObject($this->getMessages($request));
+			$scoring = CopilotPrompt::normalizeScoring((array)$result->json);
+			// Ни одного критерия — оценки нет: CRM получила бы пустую, а журнал
+			// записал бы SUCCESS. Оплаченный негодный ответ — ошибкой с ценой,
+			// ядру — колбэк ошибки (как PAYLOAD_IS_EMPTY у полей, #11).
+			if($scoring['call_review']['criteria'] === [])
+			{
+				throw new ProviderException('Модель не оценила ни одного критерия', 'provider_bad_response', null, $result->getTokens(), $result->costMicro);
+			}
 
 			return new Result(
-				(string)json_encode(CopilotPrompt::normalizeScoring((array)$result->json), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+				(string)json_encode($scoring, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
 				$result->getTokens(),
 				$result->costMicro
 			);
