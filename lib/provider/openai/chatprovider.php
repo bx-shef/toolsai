@@ -2,6 +2,7 @@
 
 namespace Shef\ToolsAi\Provider\OpenAi;
 
+use Shef\ToolsAi\Completion\CopilotPrompt;
 use Shef\ToolsAi\Completion\Request;
 use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Main\Constants;
@@ -11,9 +12,8 @@ use Shef\ToolsAi\Provider\Result;
 /**
  * Категория text: резюме звонка, заполнение полей, оценка разговора.
  *
- * Промпт собирает ядро (сценарии crm/lib/Copilot/Pipeline/Scenario/*),
- * здесь он только переводится в сообщения chat completions —
- * Request::getChatMessages().
+ * Промпт ядра — Request::getChatMessages(). Резюме звонка и заполнение
+ * полей — свои промпты (CopilotPrompt), если они включены настройкой.
  */
 final class ChatProvider implements ProviderInterface
 {
@@ -38,7 +38,7 @@ final class ChatProvider implements ProviderInterface
 	public function estimateCostMicro(Request $request): int
 	{
 		$chars = 0;
-		foreach($request->getChatMessages() as $message)
+		foreach($this->getMessages($request) as $message)
 		{
 			$chars += mb_strlen($message['content']);
 		}
@@ -48,8 +48,40 @@ final class ChatProvider implements ProviderInterface
 
 	public function run(Request $request): Result
 	{
-		$result = $this->llm->complete($request->getChatMessages());
+		// Поля CRM разбирает как JSON: отдаём ровно объект, без обёрток, и
+		// только ключи, которые CRM знает (полей из маркера и comment): лишнее
+		// ей не нужно, а модель могли уговорить в разговоре.
+		if($this->getOwnCode($request) === CopilotPrompt::EXTRACT_FIELDS)
+		{
+			$result = $this->llm->completeJsonObject($this->getMessages($request));
+			$json = (array)$result->json;
+			$names = CopilotPrompt::getFieldNames($request);
+			if($names !== [])
+			{
+				$json = array_intersect_key($json, array_flip($names));
+			}
+
+			return new Result(
+				$json === [] ? '{}' : (string)json_encode($json, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+				$result->getTokens(),
+				$result->costMicro
+			);
+		}
+
+		$result = $this->llm->complete($this->getMessages($request));
 
 		return new Result($result->text, $result->getTokens(), $result->costMicro);
+	}
+
+	/** Код своего промпта, если свои промпты включены и код наш. */
+	private function getOwnCode(Request $request): ?string
+	{
+		return $this->config->isOwnPromptsEnabled() ? CopilotPrompt::getCode($request) : null;
+	}
+
+	/** @return list<array{role: string, content: string}> */
+	private function getMessages(Request $request): array
+	{
+		return ($this->getOwnCode($request) !== null ? CopilotPrompt::getMessages($request) : []) ?: $request->getChatMessages();
 	}
 }

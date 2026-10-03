@@ -186,6 +186,11 @@ $options->addTab(
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_llmextra_descr'))
 		)
 		->addOption(
+			(new Options\Checkbox('ownprompts'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts_descr'))
+		)
+		->addOption(
 			(new Options\Text('asrprice'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrprice'))
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_price_descr'))

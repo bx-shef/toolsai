@@ -3,5 +3,5 @@
 # Правят их здесь. sync.sh --to их не трогает, --check сверяет с диском.
 # Пересобрать: .claude/skills/sync.sh --local
 #
-4de375530a1d83b45134662695c7a9410f81c9f79cbffe42632a9ce5fbc136d2  shef-new-ai-provider/SKILL.md
+39e2b636559f0a54e64f8881d1b22d15f955c316a5b870c754c908da69314d8d  shef-new-ai-provider/SKILL.md
 214db26741192f006d0b71206e419eef1272bf5bf3aeead9867c11cf5c86513c  shef-new-ai-provider/evals/selection.json

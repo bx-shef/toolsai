@@ -217,6 +217,17 @@ class Config
 	 * поэтому — как есть, без знания модуля (bx-shef/toolsai#12). Не JSON-
 	 * объект — пусто; модель, сообщения и формат ответа задаёт модуль.
 	 */
+	/**
+	 * Свои промпты для резюме звонка и заполнения полей (Completion\CopilotPrompt)
+	 * вместо промпта ядра. По умолчанию выключено: ядро присылает готовый
+	 * промпт Копилота (prompt), и он первый кандидат; свои — если на
+	 * портале ответы по промпту ядра не годятся (bx-shef/toolsai#11).
+	 */
+	public function isOwnPromptsEnabled(): bool
+	{
+		return OptionParser::flag($this->get('API_ownprompts'));
+	}
+
 	public function getLlmExtra(): array
 	{
 		$raw = trim((string)$this->get('API_llmextra'));

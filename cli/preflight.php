@@ -100,6 +100,7 @@ if($usesApi)
 		'доп. параметры модели текста',
 		$config->isLlmExtraBroken() ? 'не JSON-объект — не применяются' : ((string)json_encode($config->getLlmExtra(), JSON_UNESCAPED_UNICODE) ?: '{}')
 	);
+	$line('OK', 'промпты резюме и полей', $config->isOwnPromptsEnabled() ? 'свои модуля' : 'ядра (готовый prompt)');
 	$line(
 		$config->getAsrPricePerMinuteMicro() > 0 ? 'OK' : 'WARN',
 		'цены',

@@ -28,7 +28,13 @@ public function run(Request $request): Result;                // бросает 
 
 * `Request` — запрос ядра (`\Shef\ToolsAi\Completion\Request`): для
   `audio` — `getAudioUrl()`, `getAudioMimeType()`, `getLanguage()`; для
-  `text` — `getChatMessages()`, уже собранные из роли, контекста и промпта;
+  `text` — `getChatMessages()`, уже собранные из роли, контекста и готового
+  промпта ядра; при включённой настройке «Свои промпты»
+  (`Config::isOwnPromptsEnabled()`) для резюме и полей —
+  `\Shef\ToolsAi\Completion\CopilotPrompt::getMessages($request)`, и при
+  `CopilotPrompt::getCode($request) === CopilotPrompt::EXTRACT_FIELDS` ответ —
+  один JSON-объект с ключами-именами полей и `comment` (образец —
+  `OpenAi\ChatProvider`);
 * `Result` (`\Shef\ToolsAi\Provider\Result`) — текст, единицы (секунды
   аудио или токены) и стоимость в **микро-единицах** валюты (1/1_000_000);
 * сбой — `\Shef\ToolsAi\Provider\ProviderException` с кодом: он уходит
@@ -37,7 +43,9 @@ public function run(Request $request): Result;                // бросает 
 Для LLM, которую зовёт анализ сделок, — второй интерфейс,
 `\Shef\ToolsAi\Provider\Llm\LlmProviderInterface`: `complete(array $messages)`
 и `completeJson(string $system, string $user, array $schema)`, оба
-возвращают `LlmResult` с токенами и ценой.
+возвращают `LlmResult` с токенами и ценой. У `OpenAi\Llm` есть ещё
+`completeJsonObject(array $messages)` — JSON-объект без схемы, для полей
+CRM; в интерфейс он не входит.
 
 ## Порядок
 

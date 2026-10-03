@@ -55,6 +55,32 @@
 }
 ```
 
+### text: резюме звонка и заполнение полей
+
+При `payload_provider = "prompt"` (ai 26.1000 / crm 26.800, сверено по коду):
+
+* `prompt` — готовый текст промпта Копилота: шаблон, уже прогнанный ядром
+  через `Payload\Formatter` с маркерами (`ai/lib/Payload/Prompt.php:103-118`);
+  `payload_prompt_text` — **сырой** шаблон того же промпта с `{маркерами}` и
+  `@switch` — модели его не отдавать (до 1.0.2 отдавали, bx-shef/toolsai#11);
+* `payload_raw` — код промпта: `summarize_transcript` (резюме),
+  `extract_form_fields` (поля) и другие;
+* `payload_markers` — данные. Резюме: `original_message` (расшифровка),
+  `company_name`, `manager_name`. Поля: `original_message` (резюме),
+  `fields` — имя поля → `"<тип> or null"`, плюс `comment: list[string]`
+  (crm `operation/payload/payload/extractformfields.php`), `enum_fields_values`
+  (значения в нижнем регистре), `current_day/month/year`. `language` —
+  **названием** языка («Русский», «English»; `Bitrix24::getUserLanguage()`);
+* ответ резюме CRM берёт текстом как есть (`getPrettifiedData()`);
+* ответ полей CRM ищет как JSON между первой `{` и последней `}`
+  (`AbstractOperation::extractPayloadPrettifiedData`), сопоставляет ключи с
+  `NAME` полей, `comment`/`comments` — в нераспределённое. Ни одного
+  совпадения и пустой comment — ошибка задания `PAYLOAD_IS_EMPTY`.
+
+Модуль по умолчанию отдаёт модели `prompt`; с настройкой «Свои промпты»
+(`API_ownprompts`) — свою инструкцию по коду и маркерам
+(`Completion\CopilotPrompt`) для двух кодов выше.
+
 ### Ответ эндпоинта: строго 202
 
 `ThirdParty.php:23,254-271`:
