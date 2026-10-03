@@ -10,7 +10,13 @@ use Bitrix\Main\Type\DateTime;
 use Shef\Options\Main\TempFile\Pid;
 use Shef\Options\TraitList\Security\FixUser;
 use Shef\ToolsAi\Container;
+use Shef\ToolsAi\Deal\DealFacts;
 use Shef\ToolsAi\Deal\Model\DealCheckTable;
+use Shef\ToolsAi\Deal\Model\DealProfileTable;
+use Shef\ToolsAi\Deal\Profile;
+use Shef\ToolsAi\Deal\ProfileMigration;
+use Shef\ToolsAi\Deal\ProfilePicker;
+use Shef\ToolsAi\Deal\RiskScale;
 use Shef\ToolsAi\Main\Constants;
 use Shef\ToolsAi\Provider\ProviderException;
 use Shef\ToolsAi\Quota\Ledger;
@@ -30,16 +36,21 @@ if(!\Bitrix\Main\Loader::includeModule('shef.options'))
  * ВАЖНО ПРО РАСХОД: агент — главный потребитель квоты. Сотня открытых сделок
  * при ежедневном прогоне даёт ~3000 запросов в месяц. Поэтому три
  * ограничителя, все в настройках:
- *   - дешёвый фильтр DealFacts::isWorthAnalyzing() ДО обращения к модели;
+ *   - дешёвый фильтр DealFacts::isWorthAnalyzing() ДО обращения к модели
+ *     (IDLE_DAYS профиля);
  *   - не больше DEAL_maxperrun анализов за прогон;
- *   - повторный анализ одной сделки не чаще раза в DEAL_reanalyzedays дней.
+ *   - повторный анализ одной сделки не чаще раза в REANALYZE_DAYS профиля;
+ *   - сделка без подходящего профиля модель не зовёт вовсе.
+ *
+ * Что анализировать и как действовать — профили (Deal\Profile, страница
+ * «ИИ: профили анализа сделок»): направление, тип клиента, промпт, шкала.
  *
  * Анализ — тоже расход: каждый запрос к модели пишется в журнал (категория
  * deal) и проверяется по квоте, как запросы Копилота.
  *
  * Агент регистрирует «Проверить и включить» (Main\Setup::ensureAgent) —
- * не установщик; работает — только при включённом анализе и заданных
- * направлениях.
+ * не установщик; работает — только при включённом анализе и хотя бы одном
+ * включённом профиле.
  */
 final class DealHealthAgent
 {
@@ -131,11 +142,17 @@ final class DealHealthAgent
 	 * Один прогон. Звать через runLocked().
 	 *
 	 * @param int[]|null $onlyDeals только эти сделки, без выборки кандидатов
-	 * @return array<int, array{risk: int, needSenior: bool, skipped: bool, escalated: string[], error: string}>
+	 * @return array<int, array{risk: int, needSenior: bool, skipped: bool, escalated: string[], error: string, profile: int}>
 	 */
 	public static function process(?array $onlyDeals = null): array
 	{
 		$config = Container::getConfig();
+
+		// Обновление без установщика: таблицы и перенос старых настроек.
+		ProfileMigration::run($config);
+		$profiles = DealProfileTable::getProfiles(true);
+		$pick = static fn(DealFacts $facts): ?Profile => ProfilePicker::pick($profiles, $facts->categoryId, $facts->clientType);
+
 		$analyzer = Container::getHealthAnalyzer();
 		$escalation = Container::getEscalation();
 		$meter = Container::getMeter();
@@ -168,11 +185,11 @@ final class DealHealthAgent
 				break;
 			}
 
-			$row = ['risk' => 0, 'needSenior' => false, 'skipped' => false, 'escalated' => [], 'error' => ''];
+			$row = ['risk' => 0, 'needSenior' => false, 'skipped' => false, 'escalated' => [], 'error' => '', 'profile' => 0];
 
 			try
 			{
-				$analysis = $analyzer->analyze($dealId, $config->getIdleDays());
+				$analysis = $analyzer->analyze($dealId, $pick);
 			}
 			catch(ProviderException $exception)
 			{
@@ -245,23 +262,35 @@ final class DealHealthAgent
 				}
 			}
 
-			// Эскалация пишет в CRM клиента — её сбой не должен ни обрывать
+			// Шкала профиля пишет в CRM клиента — её сбой не должен ни обрывать
 			// прогон, ни оставлять сделку без отметки о проверке (иначе за
 			// неё платили бы каждый прогон).
 			$escalated = [];
-			try
+			$profile = $analysis->profile;
+			$facts = $analysis->facts;
+			if($profile !== null && $facts !== null && !$verdict->skipped)
 			{
-				$check = DealCheckTable::getByDeal($dealId);
-				$lastEscalated = $check['ESCALATED_AT'] ?? null;
-				$recentlyEscalated = $lastEscalated instanceof DateTime
-					&& $lastEscalated->getTimestamp() > time() - $config->getReanalyzeDays() * 86400;
+				try
+				{
+					$check = DealCheckTable::getByDeal($dealId);
+					$border = time() - $profile->reanalyzeDays * 86400;
+					$isRecent = static fn(mixed $at): bool => $at instanceof DateTime && $at->getTimestamp() > $border;
 
-				$escalated = $recentlyEscalated ? [] : $escalation->escalate($dealId, $verdict);
-			}
-			catch(\Throwable $throwable)
-			{
-				$logger?->error($throwable, ['itemId' => $dealId]);
-				$row['error'] = 'Эскалация не удалась: '.$throwable->getMessage();
+					$decision = RiskScale::decide(
+						$verdict,
+						$profile,
+						$facts->assignedById,
+						$facts->openActivities,
+						$isRecent($check['MANAGER_TODO_AT'] ?? null),
+						$isRecent($check['ESCALATED_AT'] ?? null),
+					);
+					$escalated = $escalation->apply($dealId, $verdict, $profile, $decision, $facts->assignedById);
+				}
+				catch(\Throwable $throwable)
+				{
+					$logger?->error($throwable, ['itemId' => $dealId]);
+					$row['error'] = 'Эскалация не удалась: '.$throwable->getMessage();
+				}
 			}
 
 			$fields = [
@@ -271,10 +300,15 @@ final class DealHealthAgent
 				'SKIPPED' => $verdict->skipped ? 'Y' : 'N',
 				'WHY' => $verdict->skipped ? $verdict->skipReason : $verdict->why,
 				'NEXT_STEP' => $verdict->nextStep,
+				'PROFILE_ID' => $profile?->id ?? 0,
 			];
-			if($escalated !== [])
+			if(in_array('comment', $escalated, true) || in_array('todo', $escalated, true))
 			{
 				$fields['ESCALATED_AT'] = new DateTime();
+			}
+			if(in_array('manager_todo', $escalated, true))
+			{
+				$fields['MANAGER_TODO_AT'] = new DateTime();
 			}
 			static::saveCheck($dealId, $fields, $logger);
 
@@ -284,6 +318,7 @@ final class DealHealthAgent
 				'skipped' => $verdict->skipped,
 				'escalated' => $escalated,
 				'error' => $row['error'],
+				'profile' => $profile?->id ?? 0,
 			];
 		}
 
@@ -303,35 +338,43 @@ final class DealHealthAgent
 	}
 
 	/**
-	 * Открытые сделки выбранных направлений, которые давно не проверялись:
-	 * сначала непроверенные, потом самые давние.
+	 * Открытые сделки направлений с включёнными профилями, которые давно не
+	 * проверялись: сначала непроверенные, потом самые давние. Срок повтора —
+	 * самый короткий REANALYZE_DAYS среди профилей направления.
 	 *
 	 * @return int[]
 	 */
 	public static function getCandidates(): array
 	{
 		$config = Container::getConfig();
-		$categories = $config->getDealCategories();
+		ProfileMigration::run($config);
 
-		// null — настройка испорчена; [] — не выбрано. В обоих случаях не
-		// работаем: «все направления» по ошибке — это счёт за всю базу.
-		if($categories === null || $categories === [])
+		// Нет включённых профилей — не работаем: «все направления» по ошибке
+		// — это счёт за всю базу.
+		$days = ProfilePicker::getCategoryReanalyzeDays(DealProfileTable::getProfiles(true));
+		if($days === [])
 		{
 			return [];
 		}
 
-		$border = DateTime::createFromTimestamp(time() - $config->getReanalyzeDays() * 86400);
+		$byCategory = ['LOGIC' => 'OR'];
+		foreach($days as $categoryId => $reanalyzeDays)
+		{
+			$byCategory[] = [
+				'=CATEGORY_ID' => $categoryId,
+				[
+					'LOGIC' => 'OR',
+					['=CHECK.ID' => null],
+					['<CHECK.CHECKED_AT' => DateTime::createFromTimestamp(time() - $reanalyzeDays * 86400)],
+				],
+			];
+		}
 
 		$rows = DealTable::getList([
 			'select' => ['ID'],
 			'filter' => [
 				'=CLOSED' => 'N',
-				'@CATEGORY_ID' => $categories,
-				[
-					'LOGIC' => 'OR',
-					['=CHECK.ID' => null],
-					['<CHECK.CHECKED_AT' => $border],
-				],
+				$byCategory,
 			],
 			'runtime' => [
 				new Reference(

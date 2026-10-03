@@ -41,12 +41,6 @@ $MESS['shef.toolsai_TAB_API_timeout'] = 'Таймаут запроса к про
 $MESS['shef.toolsai_TAB_DEAL_NAME'] = 'Анализ сделок';
 $MESS['shef.toolsai_TAB_DEAL_TITLE'] = 'Агент «пора звать старшего»';
 $MESS['shef.toolsai_TAB_DEAL_enabled'] = 'Включить анализ';
-$MESS['shef.toolsai_TAB_DEAL_enabled_descr'] = 'Агент — главный потребитель квоты. Начинайте с одного направления и небольшого лимита.';
-$MESS['shef.toolsai_TAB_DEAL_categories'] = 'Направления сделок';
-$MESS['shef.toolsai_TAB_DEAL_categories_descr'] = 'Не выбрано ни одного — агент не работает.';
-$MESS['shef.toolsai_TAB_DEAL_threshold'] = 'Порог риска, 0-100';
-$MESS['shef.toolsai_TAB_DEAL_senior'] = 'Старший';
-$MESS['shef.toolsai_TAB_DEAL_senior_descr'] = 'Ему ставится дело по сделке с высоким риском. Не задан — только комментарий в таймлайне.';
+$MESS['shef.toolsai_TAB_DEAL_enabled_descr'] = 'Агент — главный потребитель квоты. Начинайте с одного профиля и небольшого лимита.';
+$MESS['shef.toolsai_TAB_DEAL_Profiles'] = 'Направления, типы клиента, промпты, пороги риска и старшие — на странице <a href="#URL#">ИИ: профили анализа сделок</a>. Сделку без подходящего профиля агент не анализирует.';
 $MESS['shef.toolsai_TAB_DEAL_maxperrun'] = 'Анализов за прогон, не больше';
-$MESS['shef.toolsai_TAB_DEAL_reanalyzedays'] = 'Повторный анализ сделки не чаще, дней';
-$MESS['shef.toolsai_TAB_DEAL_idledays'] = 'Сделка «в работе», если дел не было меньше, дней';

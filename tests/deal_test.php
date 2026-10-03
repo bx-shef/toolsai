@@ -9,7 +9,9 @@
  *   доходят — это главная экономия квоты;
  * * вердикт: риск подрезается в 0-100, needSenior — только настоящий true
  *   (строка 'false' при (bool) была бы true), длинный текст обрезается;
- * * эскалация — только при needSenior И риске не ниже порога;
+ * * эскалация — только при needSenior И риске не ниже порога; шаги —
+ *   по решению шкалы профиля (подробно — profile_test.php);
+ * * промпт профиля: пустой — общий, свой — целиком плюс требование JSON;
  * * заглушка LLM отдаёт вердикт по схеме — на стенде эскалацию можно
  *   пройти целиком без денег;
  * * откаты по стадиям считаются по сортировке, а не по количеству смен.
@@ -26,6 +28,8 @@ use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Deal\Escalation;
 use Shef\ToolsAi\Deal\FactsSourceInterface;
 use Shef\ToolsAi\Deal\HealthAnalyzer;
+use Shef\ToolsAi\Deal\Profile;
+use Shef\ToolsAi\Deal\RiskScale;
 use Shef\ToolsAi\Deal\Verdict;
 use Shef\ToolsAi\Provider\Llm\EchoLlm;
 
@@ -57,6 +61,7 @@ Check::group('промпт — сводка, а не транскрипт');
 $text = $facts(10, 2, ['01.09.2026, Звонок: просил скидку'])->toPromptText();
 Check::same('сумма с разрядами', str_contains($text, 'Сумма: 125 000.50 BYN'), true);
 Check::same('дни без активности', str_contains($text, 'Дней без активности: 10'), true);
+Check::same('строка о запланированных делах', str_contains($text, 'Запланированных (незавершённых) дел: 0'), true);
 Check::same('записи пронумерованы', str_contains($text, '1) 01.09.2026, Звонок: просил скидку'), true);
 
 Check::group('вердикт');
@@ -95,15 +100,49 @@ $source = new class($facts) implements FactsSourceInterface
 };
 $source->data = [1 => [1], 2 => [20]];
 
+$profile = Profile::fromRow(['ID' => 4, 'TITLE' => 'Опт', 'IS_ENABLED' => 'Y', 'IDLE_DAYS' => '3']);
 $analyzer = new HealthAnalyzer($source, new EchoLlm());
-$skipped = $analyzer->analyze(1, 3);
+$skipped = $analyzer->analyze(1, static fn(): Profile => $profile);
 Check::same('сделка в работе — пропуск', $skipped->verdict->skipped, true);
 Check::same('модель не звали', $skipped->llm, null);
+Check::same('профиль в итоге', $skipped->profile?->id, 4);
 
-$stale = $analyzer->analyze(2, 3);
+$noProfile = $analyzer->analyze(2, static fn(): ?Profile => null);
+Check::same('нет профиля — пропуск', [$noProfile->verdict->skipped, $noProfile->verdict->skipReason], [true, 'Нет подходящего профиля анализа']);
+Check::same('нет профиля — модель не звали', $noProfile->llm, null);
+Check::same('нет профиля — факты всё равно есть', $noProfile->facts?->dealId, 15);
+
+$stale = $analyzer->analyze(2, static fn(): Profile => $profile);
 Check::same('20 дней без дел — модель позвали', $stale->llm !== null, true);
 Check::same('заглушка: риск по дням', $stale->verdict->risk, 95);
 Check::same('заглушка: звать старшего', $stale->verdict->needSenior, true);
+
+$long = $analyzer->analyze(2, static fn(): Profile => Profile::fromRow(['IS_ENABLED' => 'Y', 'IDLE_DAYS' => '30']));
+Check::same('IDLE_DAYS профиля: 20 дней при пороге 30 — в работе', $long->llm, null);
+
+Check::group('промпт профиля');
+
+Check::same('пустой — общий', HealthAnalyzer::buildSystemPrompt('  '), HealthAnalyzer::getSystemPrompt());
+Check::same('свой — целиком и с требованием JSON', HealthAnalyzer::buildSystemPrompt('Ты — РОП оптового отдела.'), "Ты — РОП оптового отдела.\n\n".HealthAnalyzer::JSON_RULE);
+
+$llm = new class implements \Shef\ToolsAi\Provider\Llm\LlmProviderInterface
+{
+	public string $system = '';
+	private EchoLlm $echo;
+
+	public function __construct() { $this->echo = new EchoLlm(); }
+	public function getCode(): string { return 'spy'; }
+	public function complete(array $messages): \Shef\ToolsAi\Provider\Llm\LlmResult { return $this->echo->complete($messages); }
+
+	public function completeJson(string $system, string $user, array $schema): \Shef\ToolsAi\Provider\Llm\LlmResult
+	{
+		$this->system = $system;
+
+		return $this->echo->completeJson($system, $user, $schema);
+	}
+};
+(new HealthAnalyzer($source, $llm))->analyze(2, static fn(): Profile => Profile::fromRow(['IS_ENABLED' => 'Y', 'PROMPT' => 'Свой промпт']));
+Check::same('модель получила промпт профиля', str_starts_with($llm->system, 'Свой промпт'), true);
 
 $schema = HealthAnalyzer::SCHEMA;
 Check::same('схема ответа строгая', [$schema['additionalProperties'], $schema['required']], [false, ['risk', 'needSenior', 'why', 'nextStep']]);
@@ -165,7 +204,7 @@ if(!class_exists('CCrmOwnerType'))
 }
 
 $addTodo = new ReflectionMethod(Escalation::class, 'addTodo');
-Check::same('дело поставлено', $addTodo->invoke(new Escalation(new Config(static fn(): string => '')), 15, 7, 'текст'), true);
+Check::same('дело поставлено', $addTodo->invoke(new Escalation(), 15, 7, 'текст'), true);
 Check::same('на сделку и старшему', \Bitrix\Crm\Activity\Entity\ToDo::$saved, [[15, 7]]);
 
 Check::group('эскалация: старший не задан — отчёт говорит об этом');
@@ -184,11 +223,21 @@ namespace Bitrix\Crm\Timeline
 PHP);
 
 $verdict = Verdict::fromArray(['risk' => 95, 'needSenior' => true, 'why' => 'молчит', 'nextStep' => 'позвонить']);
-$withSenior = static fn(string $senior): Escalation => new Escalation(new Config(
-	static fn(string $module, string $name): string => $name === 'DEAL_senior' ? $senior : ''
-));
-Check::same('старшего нет — комментарий и причина, без дела', $withSenior('')->escalate(15, $verdict), ['comment', 'старший не задан — дела нет']);
-Check::same('старший есть — комментарий и дело', $withSenior('7')->escalate(16, $verdict), ['comment', 'todo']);
+$withSenior = static fn(string $senior): Profile => Profile::fromRow(['IS_ENABLED' => 'Y', 'LOW_BORDER' => '50', 'HIGH_BORDER' => '70', 'SENIOR_ID' => $senior]);
+$apply = static fn(Profile $profile, int $manager, int $open): array => (new Escalation())->apply(15, $verdict, $profile, RiskScale::decide($verdict, $profile, $manager, $open), $manager);
+\Bitrix\Crm\Activity\Entity\ToDo::$saved = [];
+Check::same('старшего нет — комментарий и причина, без дела', $apply($withSenior(''), 3, 1), ['comment', 'старший не задан — дела нет']);
+Check::same('старший есть — комментарий и дело', $apply($withSenior('7'), 3, 1), ['comment', 'todo']);
+Check::same('нет запланированных дел — ещё и дело менеджеру', $apply($withSenior('7'), 3, 0), ['manager_todo', 'comment', 'todo']);
+Check::same('дела ушли менеджеру 3 и старшему 7', \Bitrix\Crm\Activity\Entity\ToDo::$saved, [[15, 7], [15, 3], [15, 7]]);
+
+Check::group('текст дела менеджеру');
+
+Check::same(
+	'риск, что сделать, почему',
+	Escalation::buildManagerText(Verdict::fromArray(['risk' => 60, 'why' => 'молчит', 'nextStep' => 'позвонить'])),
+	"ИИ-анализ сделки: нет запланированных дел, риск 60%.\nЧто сделать: позвонить\nПочему: молчит"
+);
 
 Check::group('откаты по стадиям');
 

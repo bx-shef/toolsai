@@ -110,7 +110,7 @@ final class Container
 
 	public static function getEscalation(): Escalation
 	{
-		return new Escalation(self::getConfig());
+		return new Escalation();
 	}
 
 	/**

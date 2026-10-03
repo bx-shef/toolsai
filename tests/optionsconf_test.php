@@ -139,13 +139,19 @@ Check::group('коды опций — те, что читает Config');
 
 $config = (string)file_get_contents($root.'/lib/config.php');
 preg_match_all("/'((?:DEF|API|DEAL)_[a-z]+)'/", $config, $match);
-$read = array_values(array_unique($match[1]));
+// Устаревшие настройки анализа сделок (до 1.1.0) Config читает только для
+// переноса в профили (Deal\ProfileMigration) — на странице их быть не должно.
+$legacy = \Shef\ToolsAi\Config::LEGACY_DEAL_OPTIONS;
+$read = array_values(array_diff(array_unique($match[1]), $legacy));
 sort($read);
 
-$onPage = array_values(array_filter($codes, static fn(string $code): bool => !str_ends_with($code, '_Engine') && !str_ends_with($code, '_Selection')));
+$onPage = array_values(array_filter($codes, static fn(string $code): bool => !str_ends_with($code, '_Engine') && !str_ends_with($code, '_Selection') && !str_ends_with($code, '_Profiles')));
 sort($onPage);
 
 Check::same('всё, что читает Config, есть на странице, и наоборот', $onPage, $read);
+Check::same('устаревших настроек сделок на странице нет', array_values(array_intersect($codes, $legacy)), []);
+Check::same('устаревшие — ровно те, что переносятся в профили', $legacy, ['DEAL_categories', 'DEAL_threshold', 'DEAL_senior', 'DEAL_reanalyzedays', 'DEAL_idledays']);
+Check::same('на вкладке сделок — ссылка на страницу профилей', str_contains($descriptions, '/bitrix/admin/shef_toolsai_deal_profiles.php'), true);
 
 require $root.'/default_option.php';
 $unknownDefaults = array_diff(array_keys($shef_toolsai_default_option), $read);

@@ -21,9 +21,10 @@ Loc::loadMessages(__FILE__);
  * каталог модуля от самого установщика) плюс то, ради чего модуль есть
  * (docs/00-research.md):
  *
- *   1) таблицы расхода и проверок сделок — Битрикс для своего движка не
- *      считает ничего;
- *   2) заглушки эндпоинта и страницы расхода — пишутся, а не копируются;
+ *   1) таблицы расхода, проверок и профилей анализа сделок — Битрикс для
+ *      своего движка не считает ничего;
+ *   2) заглушки эндпоинта, страницы расхода и страницы профилей — пишутся,
+ *      а не копируются;
  *   3) Main\Setup::prepare(): токен. Портал установка не меняет — обход
  *      BaaS, движки и агент включает администратор кнопкой «Проверить и
  *      включить» (Setup::run(), решение владельца 2026-10-02).
@@ -125,6 +126,7 @@ Class shef_toolsai
 		
 		\Shef\ToolsAi\Quota\Model\UsageTable::init();
 		\Shef\ToolsAi\Deal\Model\DealCheckTable::init();
+		\Shef\ToolsAi\Deal\Model\DealProfileTable::init();
 		
 		return true;
 	}
@@ -148,6 +150,7 @@ Class shef_toolsai
 			{
 				\Shef\ToolsAi\Quota\Model\UsageTable::drop();
 				\Shef\ToolsAi\Deal\Model\DealCheckTable::drop();
+				\Shef\ToolsAi\Deal\Model\DealProfileTable::drop();
 			}
 		}
 		catch(\Throwable $throwable)

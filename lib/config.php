@@ -31,6 +31,13 @@ class Config
 	public const DEFAULT_REANALYZE_DAYS = 7;
 	public const DEFAULT_IDLE_DAYS = 3;
 
+	/**
+	 * Настройки анализа сделок до 1.1.0. Теперь это поля профилей
+	 * (Deal\Profile); Config читает их только для переноса
+	 * (Deal\ProfileMigration::plan()), на странице настроек их нет.
+	 */
+	public const LEGACY_DEAL_OPTIONS = ['DEAL_categories', 'DEAL_threshold', 'DEAL_senior', 'DEAL_reanalyzedays', 'DEAL_idledays'];
+
 	/** Токен эндпоинта: не на странице настроек, генерируется Setup. */
 	public const OPTION_TOKEN = 'SYS_token';
 
@@ -285,7 +292,8 @@ class Config
 	}
 
 	/**
-	 * Направления сделок для анализа.
+	 * Направления сделок для анализа. Устарело (1.1.0): только для переноса
+	 * в профили.
 	 *
 	 * @return int[]|null null — настройка испорчена: агент не работает, а не
 	 *                    берёт «все направления»
@@ -295,13 +303,13 @@ class Config
 		return OptionParser::idList($this->get('DEAL_categories'));
 	}
 
-	/** Порог риска 0-100, с которого зовём старшего. */
+	/** Порог риска 0-100, с которого зовём старшего. Устарело: для переноса. */
 	public function getEscalationThreshold(): int
 	{
 		return OptionParser::int($this->get('DEAL_threshold'), static::DEFAULT_THRESHOLD, 0, 100);
 	}
 
-	/** Кому ставить дело эскалации. 0 — ответственному за сделку не ставим, только таймлайн. */
+	/** Кому ставить дело эскалации. 0 — только таймлайн. Устарело: для переноса. */
 	public function getSeniorUserId(): int
 	{
 		return OptionParser::id($this->get('DEAL_senior'));
@@ -312,12 +320,13 @@ class Config
 		return OptionParser::int($this->get('DEAL_maxperrun'), static::DEFAULT_MAX_PER_RUN, 1, 500);
 	}
 
+	/** Устарело (1.1.0): для переноса в профили. */
 	public function getReanalyzeDays(): int
 	{
 		return OptionParser::int($this->get('DEAL_reanalyzedays'), static::DEFAULT_REANALYZE_DAYS, 1, 365);
 	}
 
-	/** Сколько дней без дел считать «работа не идёт». */
+	/** Сколько дней без дел считать «работа не идёт». Устарело: для переноса. */
 	public function getIdleDays(): int
 	{
 		return OptionParser::int($this->get('DEAL_idledays'), static::DEFAULT_IDLE_DAYS, 0, 365);

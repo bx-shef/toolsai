@@ -54,6 +54,7 @@ final class ContextBuilder implements FactsSourceInterface
 		$callsIncoming = 0;
 		$outgoingWithoutAnswer = 0;
 		$seenIncoming = false;
+		$openActivities = 0;
 		$notes = [];
 
 		// От свежего к старому.
@@ -61,6 +62,10 @@ final class ContextBuilder implements FactsSourceInterface
 		{
 			$time = $activity['CREATED'] instanceof \Bitrix\Main\Type\DateTime ? $activity['CREATED']->getTimestamp() : 0;
 			$lastActivity = max($lastActivity, $time);
+			if(($activity['COMPLETED'] ?? 'Y') === 'N')
+			{
+				$openActivities++;
+			}
 
 			if((int)$activity['TYPE_ID'] === \CCrmActivityType::Call)
 			{
@@ -103,6 +108,10 @@ final class ContextBuilder implements FactsSourceInterface
 			callsIncoming: $callsIncoming,
 			outgoingWithoutAnswer: $outgoingWithoutAnswer,
 			recentNotes: $notes,
+			categoryId: (int)$item->getCategoryId(),
+			assignedById: (int)$item->getAssignedById(),
+			openActivities: $openActivities,
+			clientType: $this->getClientType($item),
 		);
 	}
 
@@ -127,10 +136,48 @@ final class ContextBuilder implements FactsSourceInterface
 		}
 
 		return ActivityTable::getList([
-			'select' => ['ID', 'CREATED', 'TYPE_ID', 'DIRECTION', 'SUBJECT', 'DESCRIPTION'],
+			'select' => ['ID', 'CREATED', 'TYPE_ID', 'DIRECTION', 'SUBJECT', 'DESCRIPTION', 'COMPLETED'],
 			'filter' => ['@ID' => $ids],
 			'order' => ['CREATED' => 'DESC', 'ID' => 'DESC'],
 		])->fetchAll();
+	}
+
+	/**
+	 * Тип клиента сделки — штатно: ClientTypeResolver ядра по контакту, нет
+	 * контакта — по компании. Перевод в коды — как у речевой аналитики
+	 * (AssessmentClientTypeResolver::resolveByIdentifier()), см. ClientType.
+	 * Сбой или нет клиента — null: подойдёт только профиль «любой».
+	 */
+	private function getClientType(\Bitrix\Crm\Item $item): ?int
+	{
+		if(!class_exists(\Bitrix\Crm\Client\ClientTypeResolver::class))
+		{
+			return null;
+		}
+
+		$contactId = (int)$item->getContactId();
+		$companyId = (int)$item->getCompanyId();
+		$identifier = match(true)
+		{
+			$contactId > 0 => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Contact, $contactId),
+			$companyId > 0 => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Company, $companyId),
+			default => null,
+		};
+		if($identifier === null)
+		{
+			return null;
+		}
+
+		try
+		{
+			$type = (new \Bitrix\Crm\Client\ClientTypeResolver())->getType($identifier);
+		}
+		catch(\Throwable)
+		{
+			return null;
+		}
+
+		return ClientType::fromCoreName($type->name);
 	}
 
 	private function getStageName(\Bitrix\Crm\Service\Factory $factory, string $stageId, int $categoryId): string

@@ -141,6 +141,17 @@ final class Setup
 			}
 		}
 
+		// Переход на профили анализа сделок (1.1.0): таблицы и перенос
+		// старых настроек. Идемпотентно; сбой не мешает агенту.
+		try
+		{
+			$report['deal profiles'] = \Shef\ToolsAi\Deal\ProfileMigration::run($this->config);
+		}
+		catch(\Throwable $throwable)
+		{
+			$report['deal profiles'] = ['ok' => false, 'message' => $throwable->getMessage()];
+		}
+
 		$agent = $this->ensureAgent();
 		$report['agent'] = ['ok' => $agent, 'message' => $agent ? 'зарегистрирован' : 'не зарегистрирован'];
 

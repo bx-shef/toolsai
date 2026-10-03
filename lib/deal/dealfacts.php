@@ -26,6 +26,14 @@ final class DealFacts
 		public readonly int $outgoingWithoutAnswer,
 		/** @var string[] краткие записи по последним делам, от свежего к старому */
 		public readonly array $recentNotes,
+		/** Направление сделки — по нему подбирается профиль. */
+		public readonly int $categoryId = 0,
+		/** Ответственный за сделку (менеджер). */
+		public readonly int $assignedById = 0,
+		/** Запланированных (незавершённых, COMPLETED = 'N') дел у сделки. */
+		public readonly int $openActivities = 0,
+		/** Тип клиента сделки, Deal\ClientType::*; null — не определился. */
+		public readonly ?int $clientType = null,
 	)
 	{
 	}
@@ -63,6 +71,7 @@ final class DealFacts
 			'Откатов по стадиям назад: '.$this->stageRollbacks,
 			sprintf('Звонков всего: %d (входящих: %d)', $this->callsTotal, $this->callsIncoming),
 			'Исходящих подряд после последнего входящего: '.$this->outgoingWithoutAnswer,
+			'Запланированных (незавершённых) дел: '.$this->openActivities,
 		];
 
 		if($this->recentNotes !== [])

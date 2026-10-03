@@ -50,26 +50,58 @@ final class HealthAnalyzer
 	}
 
 	/**
+	 * Факты -> профиль -> фильтр -> модель.
+	 *
+	 * Профиль подбирает $pick по фактам (направление, тип клиента): так
+	 * анализатор не знает про таблицу профилей и проверяется без базы. Нет
+	 * профиля — пропуск без запроса к модели.
+	 *
+	 * @param callable(DealFacts): ?Profile $pick
 	 * @throws \Shef\ToolsAi\Provider\ProviderException
 	 */
-	public function analyze(int $dealId, int $idleDays): Analysis
+	public function analyze(int $dealId, callable $pick): Analysis
 	{
 		$facts = $this->facts->build($dealId);
+		$profile = $pick($facts);
+
+		if($profile === null)
+		{
+			return new Analysis(Verdict::skipped('Нет подходящего профиля анализа'), null, $facts);
+		}
 
 		// Дешёвый фильтр до обращения к модели — экономит львиную долю запросов.
-		if(!$facts->isWorthAnalyzing($idleDays))
+		if(!$facts->isWorthAnalyzing($profile->idleDays))
 		{
-			return new Analysis(Verdict::skipped('Сделка в работе, анализ не требуется'));
+			return new Analysis(Verdict::skipped('Сделка в работе, анализ не требуется'), null, $facts, $profile);
 		}
 
 		$result = $this->llm->completeJson(
-			static::getSystemPrompt(),
+			static::buildSystemPrompt($profile->prompt),
 			$facts->toPromptText(),
 			static::SCHEMA
 		);
 
-		return new Analysis(Verdict::fromArray($result->json ?? []), $result);
+		return new Analysis(Verdict::fromArray($result->json ?? []), $result, $facts, $profile);
 	}
+
+	/**
+	 * Системный промпт: свой промпт профиля или общий. Схема ответа общая
+	 * (SCHEMA) и уходит отдельно — профиль её не меняет; а чтобы свой промпт
+	 * не забыл про форму ответа, модуль всегда дописывает требование JSON.
+	 */
+	public static function buildSystemPrompt(string $profilePrompt): string
+	{
+		$profilePrompt = trim($profilePrompt);
+		if($profilePrompt === '')
+		{
+			return static::getSystemPrompt();
+		}
+
+		return $profilePrompt."\n\n".static::JSON_RULE;
+	}
+
+	/** Хвост своего промпта профиля: форма ответа — общая. */
+	public const JSON_RULE = 'Отвечай строго JSON по схеме: risk — вероятность потери сделки 0-100, needSenior — нужен ли старший, why — почему, nextStep — что сделать сейчас. Без пояснений вокруг.';
 
 	public static function getSystemPrompt(): string
 	{

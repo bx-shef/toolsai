@@ -221,37 +221,17 @@ $options->addTab(
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_enabled_descr'))
 		)
 		->addOption(
-			(new Options\EnumCrmDealCategory('categories'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_categories'))
-				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_categories_descr'))
-				->initSimpleList([])
-				->setShowRows(5)
-		)
-		->addOption(
-			(new Options\NumberInt('threshold'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_threshold'))
-		)
-		->addOption(
-			(new Options\Users('senior'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_senior'))
-				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_senior_descr'))
-				->initSimpleUserList([
-					'LOGIC' => 'OR',
-					['%=GROUPS.GROUP.STRING_ID' => 'EMPLOYEES_%'],
-					['=GROUPS.GROUP_ID' => 1],
-				])->setShowRows(1)
-		)
-		->addOption(
 			(new Options\NumberInt('maxperrun'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_maxperrun'))
 		)
 		->addOption(
-			(new Options\NumberInt('reanalyzedays'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_reanalyzedays'))
-		)
-		->addOption(
-			(new Options\NumberInt('idledays'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_idledays'))
+			// Направления, пороги, старший и промпт — в профилях (1.1.0).
+			// Старые DEAL_categories / threshold / senior / reanalyzedays /
+			// idledays переносит в профили Deal\ProfileMigration.
+			(new Options\RowInfo('Profiles'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_Profiles', [
+					'#URL#' => Constants::DEAL_PROFILES_FILE.'?lang='.LANGUAGE_ID,
+				]))
 		)
 );
 

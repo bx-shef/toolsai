@@ -28,6 +28,9 @@ class Constants
 
 	public const QUOTA_FILE = '/bitrix/admin/shef_toolsai_quota.php';
 	public const QUOTA_MODULE_PAGE = '/admin/quota.php';
+
+	public const DEAL_PROFILES_FILE = '/bitrix/admin/shef_toolsai_deal_profiles.php';
+	public const DEAL_PROFILES_MODULE_PAGE = '/admin/dealprofiles.php';
 	// endregion ////
 
 	/**
