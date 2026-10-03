@@ -42,7 +42,12 @@ $config = new Config();
  * запись.
  */
 $selectResult = null;
-if(isset($_GET['shef_toolsai_select']) && $_GET['shef_toolsai_select'] === 'Y')
+$selectCategories = [
+	'Y' => null,
+	Constants::CATEGORY_TEXT => [Constants::CATEGORY_TEXT],
+	Constants::CATEGORY_AUDIO => [Constants::CATEGORY_AUDIO],
+];
+if(isset($_GET['shef_toolsai_select']) && is_string($_GET['shef_toolsai_select']) && array_key_exists($_GET['shef_toolsai_select'], $selectCategories))
 {
 	$isAdmin = isset($GLOBALS['USER']) && $GLOBALS['USER'] instanceof \CUser && $GLOBALS['USER']->IsAdmin();
 	if($isAdmin && check_bitrix_sessid())
@@ -51,7 +56,7 @@ if(isset($_GET['shef_toolsai_select']) && $_GET['shef_toolsai_select'] === 'Y')
 		// страницу настроек модуля.
 		try
 		{
-			$report = (new Setup($config))->selectEngines();
+			$report = (new Setup($config))->selectEngines($selectCategories[$_GET['shef_toolsai_select']]);
 			$ok = array_filter($report, static fn(array $row): bool => !$row['ok']) === [];
 		}
 		catch(\Throwable $throwable)
@@ -116,11 +121,15 @@ $options->addTab(
 					// Ссылка HTML, а не BB [URL]: тот открывает новую вкладку, и
 					// исходная страница остаётся с «не выбран» (bx-shef/toolsai#3).
 					'#URL#' => htmlspecialcharsbx('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select=Y&'.bitrix_sessid_get()),
+					'#URL_TEXT#' => htmlspecialcharsbx('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select='.Constants::CATEGORY_TEXT.'&'.bitrix_sessid_get()),
+					'#URL_AUDIO#' => htmlspecialcharsbx('/bitrix/admin/settings.php?mid=shef.toolsai&lang='.LANGUAGE_ID.'&shef_toolsai_select='.Constants::CATEGORY_AUDIO.'&'.bitrix_sessid_get()),
 					'#RESULT#' => $selectResult === null ? '' : Loc::getMessage($options->moduleId.'_TAB_DEF_Selection_'.$selectResult),
 				]))
 				->setType(
+					// Хотя бы одна категория на движке модуля — рабочий выбор:
+					// вторая может быть штатной намеренно (bx-shef/toolsai#12).
 					($selection[Constants::CATEGORY_AUDIO] ?? null) === Constants::getEngineCode(Constants::CATEGORY_AUDIO)
-					&& ($selection[Constants::CATEGORY_TEXT] ?? null) === Constants::getEngineCode(Constants::CATEGORY_TEXT)
+					|| ($selection[Constants::CATEGORY_TEXT] ?? null) === Constants::getEngineCode(Constants::CATEGORY_TEXT)
 						? Options\TypeUIAlert::Note
 						: Options\TypeUIAlert::Warning
 				)

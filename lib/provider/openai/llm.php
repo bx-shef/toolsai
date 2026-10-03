@@ -13,6 +13,9 @@ use Shef\ToolsAi\Provider\ProviderException;
  */
 final class Llm implements LlmProviderInterface
 {
+	/** Провайдер отверг response_format json_schema — дальше сразу json_object. */
+	private bool $schemaRejected = false;
+
 	public function __construct(
 		private readonly Config $config,
 		private readonly Client $client,
@@ -39,25 +42,61 @@ final class Llm implements LlmProviderInterface
 	}
 
 	/**
-	 * JSON Schema — через response_format: ответ либо валиден, либо провайдер
-	 * честно падает. Свободный текст пришлось бы разбирать регулярками.
+	 * Ответ по схеме.
+	 *
+	 * Сначала response_format json_schema (strict): ответ либо валиден, либо
+	 * провайдер честно падает. Не все OpenAI-совместимые его знают: DeepSeek
+	 * понимает только json_object и на схему отвечает 4xx (bx-shef/toolsai#12).
+	 * Тогда — один повтор с json_object, схема — в системном сообщении, и
+	 * этот провайдер дальше спрашивается сразу так. Ответ в обоих режимах
+	 * сверяется со схемой у нас (validate()): провайдеру на слово не верим.
 	 */
 	public function completeJson(string $system, string $user, array $schema): LlmResult
 	{
-		$result = $this->request([
+		$result = null;
+		if(!$this->schemaRejected)
+		{
+			try
+			{
+				$result = $this->request([
+					'model' => $this->config->getLlmModel(),
+					'messages' => [
+						['role' => 'system', 'content' => $system],
+						['role' => 'user', 'content' => $user],
+					],
+					'response_format' => [
+						'type' => 'json_schema',
+						'json_schema' => [
+							'name' => 'answer',
+							'strict' => true,
+							'schema' => $schema,
+						],
+					],
+				]);
+			}
+			catch(ProviderException $exception)
+			{
+				// provider_error — 4xx, кроме ключа (401/403) и лимита (429):
+				// на них повтор с другим форматом не поможет.
+				if($exception->errorCode !== 'provider_error')
+				{
+					throw $exception;
+				}
+				$this->schemaRejected = true;
+			}
+		}
+
+		$result ??= $this->request([
 			'model' => $this->config->getLlmModel(),
 			'messages' => [
-				['role' => 'system', 'content' => $system],
+				[
+					'role' => 'system',
+					'content' => $system."\n\nОтветь одним JSON-объектом строго по этой JSON Schema, без пояснений:\n"
+						.json_encode($schema, JSON_UNESCAPED_UNICODE),
+				],
 				['role' => 'user', 'content' => $user],
 			],
-			'response_format' => [
-				'type' => 'json_schema',
-				'json_schema' => [
-					'name' => 'answer',
-					'strict' => true,
-					'schema' => $schema,
-				],
-			],
+			'response_format' => ['type' => 'json_object'],
 		]);
 
 		$json = static::extractJson($result->text);
@@ -66,7 +105,64 @@ final class Llm implements LlmProviderInterface
 			throw new ProviderException('Модель вернула не JSON', 'provider_bad_response');
 		}
 
+		$problem = static::validate($json, $schema);
+		if($problem !== null)
+		{
+			throw new ProviderException('Ответ модели не по схеме: '.$problem, 'provider_bad_response');
+		}
+
 		return new LlmResult($result->text, $json, $result->tokensIn, $result->tokensOut, $result->costMicro);
+	}
+
+	/**
+	 * Проверка ответа по схеме — то, что используют схемы модуля: объект,
+	 * обязательные ключи, типы свойств (вложенные объекты — рекурсивно).
+	 * Лишние ключи не ошибка.
+	 *
+	 * @return string|null что не так; null — всё сходится
+	 */
+	public static function validate(mixed $value, array $schema, string $path = 'ответ'): ?string
+	{
+		$type = $schema['type'] ?? null;
+		$ok = match($type)
+		{
+			'object' => is_array($value) && ($value === [] || !array_is_list($value)),
+			'array' => is_array($value) && array_is_list($value),
+			'string' => is_string($value),
+			'integer' => is_int($value),
+			'number' => is_int($value) || is_float($value),
+			'boolean' => is_bool($value),
+			'null' => $value === null,
+			default => true,
+		};
+		if(!$ok)
+		{
+			return $path.': ждали '.$type.', пришло '.get_debug_type($value);
+		}
+
+		if($type === 'object')
+		{
+			foreach((array)($schema['required'] ?? []) as $key)
+			{
+				if(!array_key_exists($key, $value))
+				{
+					return $path.': нет ключа «'.$key.'»';
+				}
+			}
+			foreach((array)($schema['properties'] ?? []) as $key => $property)
+			{
+				if(array_key_exists($key, $value) && is_array($property))
+				{
+					$problem = static::validate($value[$key], $property, $path.'.'.$key);
+					if($problem !== null)
+					{
+						return $problem;
+					}
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**

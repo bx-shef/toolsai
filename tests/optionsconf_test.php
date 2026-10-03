@@ -176,6 +176,11 @@ foreach($tabs[0]->getOptionList() as $option)
 }
 Check::same('строка выбора есть', is_string($selectionRow), true);
 Check::same('показан текущий выбор, чужой — экранирован', [str_contains($selectionRow, 'sheftoolsai_audio'), str_contains($selectionRow, '&lt;b&gt;ChatGPT&lt;/b&gt;')], [true, true]);
+Check::same(
+	'ссылки «только текст» и «только распознавание»',
+	[str_contains($selectionRow, 'shef_toolsai_select=text&amp;sessid=abc'), str_contains($selectionRow, 'shef_toolsai_select=audio&amp;sessid=abc')],
+	[true, true]
+);
 Check::same('ссылка на выбор — со sessid', str_contains($selectionRow, '<a href="/bitrix/admin/settings.php?mid=shef.toolsai&amp;lang=ru&amp;shef_toolsai_select=Y&amp;sessid=abc">'), true);
 
 $run = static function(array $get, bool $admin) use ($root): ?string
