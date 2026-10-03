@@ -19,6 +19,9 @@ final class Llm implements LlmProviderInterface
 	/** Провайдер отверг и json_object — дальше без response_format. */
 	private bool $jsonObjectRejected = false;
 
+	/** completeJsonObject(): попыток на негодный ответ (пустой, не объект). */
+	private const JSON_OBJECT_ATTEMPTS = 2;
+
 	public function __construct(
 		private readonly Config $config,
 		private readonly Client $client,
@@ -128,7 +131,7 @@ final class Llm implements LlmProviderInterface
 	 *
 	 * @param list<array{role: string, content: string}> $messages
 	 */
-	public function completeJsonObject(array $messages): LlmResult
+	public function completeJsonObject(array $messages, ?int $maxTokens = null): LlmResult
 	{
 		if($messages === [])
 		{
@@ -136,12 +139,75 @@ final class Llm implements LlmProviderInterface
 		}
 
 		$payload = ['model' => $this->config->getLlmModel(), 'messages' => $messages];
+		if($maxTokens !== null && $maxTokens > 0)
+		{
+			$payload['max_tokens'] = $maxTokens;
+		}
+
+		// Негодный ответ (пустой, обрезанный, не объект) — один повтор: у
+		// DeepSeek в режиме json_object пустой content бывает, и документация
+		// провайдера советует повторить. Обе попытки оплачены — в расход идут
+		// обе (bx-shef/toolsai#11: оценка звонка упала с «не JSON» и 0 в журнале).
+		$tokensIn = 0;
+		$tokensOut = 0;
+		$costMicro = 0;
 		$result = null;
+		for($attempt = 1; $attempt <= self::JSON_OBJECT_ATTEMPTS; $attempt++)
+		{
+			try
+			{
+				$result = $this->requestJsonObject($payload);
+			}
+			catch(ProviderException $exception)
+			{
+				if($tokensIn + $tokensOut === 0 && $costMicro === 0)
+				{
+					throw $exception;
+				}
+
+				throw new ProviderException($exception->getMessage(), $exception->errorCode, $exception, $tokensIn + $tokensOut + $exception->spentUnits, $costMicro + $exception->spentMicro);
+			}
+			$tokensIn += $result->tokensIn;
+			$tokensOut += $result->tokensOut;
+			$costMicro += $result->costMicro;
+
+			// Без response_format модель может обернуть объект текстом — берём, как
+			// CRM: от первой «{» до последней «}» (extractPayloadPrettifiedData).
+			$json = static::extractJson($result->text);
+			if($json === null && ($start = strpos($result->text, '{')) !== false && ($end = strrpos($result->text, '}')) > $start)
+			{
+				$json = static::extractJson(substr($result->text, $start, $end - $start + 1));
+			}
+			if($json !== null && ($json === [] || !array_is_list($json)))
+			{
+				return new LlmResult($result->text, $json, $tokensIn, $tokensOut, $costMicro, $result->finishReason);
+			}
+		}
+
+		// Текст ответа в сообщение не кладём — в нём персональные данные
+		// разговора; форма ответа достаточна, чтобы понять причину.
+		throw new ProviderException(
+			sprintf(
+				'Модель вернула не JSON-объект (попыток %d; последний ответ: %d симв., finish_reason %s)',
+				self::JSON_OBJECT_ATTEMPTS,
+				mb_strlen((string)$result?->text),
+				($result?->finishReason ?? '') !== '' ? $result->finishReason : '—'
+			),
+			'provider_bad_response',
+			null,
+			$tokensIn + $tokensOut,
+			$costMicro
+		);
+	}
+
+	/** Запрос с json_object; провайдер его отверг — дальше без response_format. */
+	private function requestJsonObject(array $payload): LlmResult
+	{
 		if(!$this->jsonObjectRejected)
 		{
 			try
 			{
-				$result = $this->request($payload + ['response_format' => ['type' => 'json_object']]);
+				return $this->request($payload + ['response_format' => ['type' => 'json_object']]);
 			}
 			catch(ProviderException $exception)
 			{
@@ -152,21 +218,8 @@ final class Llm implements LlmProviderInterface
 				$this->jsonObjectRejected = true;
 			}
 		}
-		$result ??= $this->request($payload);
 
-		// Без response_format модель может обернуть объект текстом — берём, как
-		// CRM: от первой «{» до последней «}» (extractPayloadPrettifiedData).
-		$json = static::extractJson($result->text);
-		if($json === null && ($start = strpos($result->text, '{')) !== false && ($end = strrpos($result->text, '}')) > $start)
-		{
-			$json = static::extractJson(substr($result->text, $start, $end - $start + 1));
-		}
-		if($json === null || ($json !== [] && array_is_list($json)))
-		{
-			throw new ProviderException('Модель вернула не JSON-объект', 'provider_bad_response', null, $result->tokensIn + $result->tokensOut, $result->costMicro);
-		}
-
-		return new LlmResult($result->text, $json, $result->tokensIn, $result->tokensOut, $result->costMicro);
+		return $this->request($payload);
 	}
 
 	/**
@@ -265,6 +318,8 @@ final class Llm implements LlmProviderInterface
 		$tokensIn = is_int($data['usage']['prompt_tokens'] ?? null) ? $data['usage']['prompt_tokens'] : 0;
 		$tokensOut = is_int($data['usage']['completion_tokens'] ?? null) ? $data['usage']['completion_tokens'] : 0;
 
-		return new LlmResult($content, null, $tokensIn, $tokensOut, $this->getCostMicro($tokensIn, $tokensOut));
+		$finishReason = $data['choices'][0]['finish_reason'] ?? '';
+
+		return new LlmResult($content, null, $tokensIn, $tokensOut, $this->getCostMicro($tokensIn, $tokensOut), is_scalar($finishReason) ? (string)$finishReason : '');
 	}
 }

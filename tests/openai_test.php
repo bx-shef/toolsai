@@ -562,4 +562,33 @@ Check::same('оценка: свои промпты выключены — отв
 
 Check::same('оценка: критерии массивом тоже принимаются', CopilotPrompt::getCode($copilot('call_scoring', ['transcript' => 'т', 'criteria' => ['А', ' ', 'Б']])), 'call_scoring');
 
+Check::group('json_object: негодный ответ — один повтор, обе попытки в расходе (#11)');
+
+$transport = new FakeTransport();
+$transport->responses = [$answer(''), $answer('{"call_review":{"criteria":[{"criterion":"Поздоровался","status":true,"explanation":"да"}]},"overall_summary":"ок","recommendations":"нет"}')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = $chat->run($copilot('call_scoring', $scoringMarkers));
+Check::same('оценка: пустой ответ — повтор, второй ответ принят, расход за обе попытки', [count($transport->sent), json_decode($result->text, true)['call_review']['criteria'][0]['criterion'] ?? null, $result->units], [2, 'Поздоровался', 2200]);
+Check::same('оценка: лимит ответа 16000 токенов (умолчание DeepSeek обрезало JSON)', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 16000);
+
+$transport = new FakeTransport();
+$cut = new Response(200, (string)json_encode([
+	'choices' => [['message' => ['content' => '{"call_review": {"criteria": [{"criterion": "Поздо'], 'finish_reason' => 'length']],
+	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 100],
+]));
+$transport->responses = [$cut, $cut];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
+Check::same(
+	'оценка: обрезан дважды — ошибка с причиной (finish_reason) без текста разговора и с ценой обеих попыток',
+	[$error?->errorCode, str_contains((string)$error?->getMessage(), 'finish_reason length'), str_contains((string)$error?->getMessage(), 'Поздо'), $error?->spentUnits, count($transport->sent)],
+	['provider_bad_response', true, false, 2200, 2]
+);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"Сумма": 1}')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat->run($copilot('extract_form_fields', $fieldsMarkers));
+Check::same('поля: max_tokens не задаётся (умолчание провайдера)', array_key_exists('max_tokens', json_decode($transport->sent[0]['body'], true)), false);
+
 Check::finish();
