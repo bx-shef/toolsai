@@ -77,9 +77,64 @@
   `NAME` полей, `comment`/`comments` — в нераспределённое. Ни одного
   совпадения и пустой comment — ошибка задания `PAYLOAD_IS_EMPTY`.
 
+Оценка звонка по скрипту — `payload_raw = "call_scoring"`, маркеры
+`transcript` и `criteria` (критерии скрипта речевой аналитики через перевод
+строки, `crm/lib/integration/ai/operation/scorecall.php:116-119`). Ответ CRM
+ищет JSON `{"call_review": {"criteria": [{criterion, status, explanation}]},
+"overall_summary", "recommendations"}` (`ScoreCall::extractPayloadFromAIResult`).
+
 Модуль по умолчанию отдаёт модели `prompt`; с настройкой «Свои промпты»
 (`API_ownprompts`) — свою инструкцию по коду и маркерам
-(`Completion\CopilotPrompt`) для двух кодов выше.
+(`Completion\CopilotPrompt`) для трёх кодов выше.
+
+### Почему на коробке нужны свои промпты
+
+Готовый `prompt` на коробке **без инструкции**: текст промптов Копилота
+закрыт метками вида `<1568-62e900e9>`, открытыми остаются только команды
+шаблона (`@switch`, `@setTemperature`) и маркеры. Замер на боевом портале
+(bx-shef/toolsai#11, ai 26.1000): модель получила расшифровку и ответила
+«не понял, что именно нужно сделать».
+
+* Метки приходят уже в дистрибутиве: `ai/install/prompts/world.json` —
+  84 промпта из 121 с метками, в том числе `summarize_transcript` (58),
+  `extract_form_fields` (99), `call_scoring` (142); открытым текстом — только
+  стили картинок. Обновление промптов из сети (`Updater::refreshFromRemote()`,
+  опция `ai_prompt_db_uri`) на коробке может быть не настроено — тогда база
+  из этого файла.
+* Одинаковый фрагмент текста получает одинаковый хвост метки в разных
+  версиях (`-800d006c` у `@case(ChatGPT)` в 1568 и 1592) — похоже на хеш
+  фрагмента; словаря на коробке нет. В коде модуля `ai` раскрытия меток нет:
+  `Payload\Formatter` и его `Clean` их не трогают.
+* Раскрываются они в облаке Битрикса. Облачные движки (ChatGPT, GigaChat,
+  YandexGPT, BitrixGPT — `Engine/Cloud/CloudEngine.php`) прямых запросов с
+  коробки не делают (`completions()` — «Direct completions are not supported
+  for cloud engines») и шлют в облако **код** промпта
+  (`exportPromptData()`: `promptCode`, `promptCategory`), а не текст. Поэтому
+  выбор разных облачных провайдеров в настройках ИИ работает, а сторонний
+  движок (`Engine/ThirdParty.php`) получает текст после `Formatter` — с
+  метками.
+
+**Что говорит REST-документация** ([AI в Битрикс24: обзор
+методов](https://apidocs.bitrix24.ru/api-reference/ai/index.html),
+[ai.engine.register](https://apidocs.bitrix24.ru/api-reference/ai/ai-engine-register.html),
+сверено 2026-10-03):
+
+* `ai.engine.register` описан для облачной версии; поля запроса к
+  `completions_url` — те же, что выше; ответ за 5 секунд кодом `202`,
+  результат — в `callbackUrl`;
+* `settings.code_alias` — «псевдоним модели, по умолчанию ChatGPT»: по нему
+  шаблон выбирает ветку `@switch (engine.code)`; метки он не раскрывает;
+* пример запроса — пользовательский текст открытым текстом; о системных
+  промптах сценариев CRM (резюме, поля, оценка) и их закрытости на коробке —
+  ни слова;
+* `ai.prompt.register` регистрирует **свой** промпт с уникальным кодом (меню
+  Копилота) — подменить системный `summarize_transcript` им нельзя: CRM
+  вызывает сценарии по жёстким кодам.
+
+Штатного способа получить на стороннем движке открытый текст промптов CRM
+нет. Свой промпт по коду сценария (`payload_raw`) и данным
+(`payload_markers`) — единственный путь; на коробке со своим провайдером
+«Свои промпты» нужно включать.
 
 ### Ответ эндпоинта: строго 202
 
