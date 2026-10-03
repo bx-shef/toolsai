@@ -68,6 +68,18 @@ final class ChatProvider implements ProviderInterface
 			);
 		}
 
+		// Оценка по скрипту: CRM разбирает JSON строгой формы — приводим к ней.
+		if($this->getOwnCode($request) === CopilotPrompt::CALL_SCORING)
+		{
+			$result = $this->llm->completeJsonObject($this->getMessages($request));
+
+			return new Result(
+				(string)json_encode(CopilotPrompt::normalizeScoring((array)$result->json), JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+				$result->getTokens(),
+				$result->costMicro
+			);
+		}
+
 		$result = $this->llm->complete($this->getMessages($request));
 
 		return new Result($result->text, $result->getTokens(), $result->costMicro);

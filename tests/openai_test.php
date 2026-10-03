@@ -29,6 +29,7 @@ require_once $root.'/tests/stub/autoload.php';
 require_once $root.'/tests/stub/fakes.php';
 require_once $root.'/tests/assert.php';
 
+use Shef\ToolsAi\Completion\CopilotPrompt;
 use Shef\ToolsAi\Completion\Request;
 use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Http\Response;
@@ -489,5 +490,70 @@ Check::same('completeJsonObject без сообщений — empty_prompt', $er
 $llm = new Llm($config($own), new Client($config($own), new FakeTransport()));
 $chat = new ChatProvider($config($own), $llm);
 Check::same('оценка расхода закладывает ответ модели (2000 токенов выхода)', $chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => 'а'])) >= $llm->getCostMicro(1, 2000), true);
+
+Check::group('свой промпт: оценка звонка по скрипту (call_scoring)');
+
+$scoringMarkers = [
+	'transcript' => 'Менеджер: Добрый день, магазин. Клиент: Нужен сапун на Husqvarna 135.',
+	'criteria' => "Поздоровался и представился\nВыяснил потребность\n\n  Предложил следующий шаг  ",
+	'manager_name' => 'Иван Петров',
+];
+$transport = new FakeTransport();
+$transport->responses = [$answer((string)json_encode([
+	'call_review' => ['criteria' => [
+		['criterion' => 'Поздоровался и представился', 'status' => true, 'explanation' => 'Сказал «Добрый день, магазин»', 'лишнее' => 1],
+		['criterion' => '', 'status' => true, 'explanation' => 'без критерия — выбросить'],
+		['criterion' => 'Выяснил потребность', 'status' => 'да', 'explanation' => 'статус не bool — null'],
+		'мусор',
+	]],
+	'overall_summary' => 'Короткий звонок.',
+	'recommendations' => 'Предложить визит в магазин.',
+	'ignore' => 'лишний ключ',
+], JSON_UNESCAPED_UNICODE))];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = $chat->run($copilot('call_scoring', $scoringMarkers));
+$sent = json_decode($transport->sent[0]['body'], true);
+Check::same('оценка: ответ приведён к форме CRM, мусор и лишние ключи убраны', json_decode($result->text, true), [
+	'call_review' => ['criteria' => [
+		['criterion' => 'Поздоровался и представился', 'status' => true, 'explanation' => 'Сказал «Добрый день, магазин»'],
+		['criterion' => 'Выяснил потребность', 'status' => null, 'explanation' => 'статус не bool — null'],
+	]],
+	'overall_summary' => 'Короткий звонок.',
+	'recommendations' => 'Предложить визит в магазин.',
+]);
+Check::same(
+	'оценка: json_object, критерии списком без пустых строк, транскрипт — сообщением пользователя, текст ядра не уходит',
+	[
+		$sent['response_format'] ?? null,
+		str_contains($sent['messages'][0]['content'], '["Поздоровался и представился","Выяснил потребность","Предложил следующий шаг"]'),
+		str_contains($sent['messages'][0]['content'], '"call_review"'),
+		str_contains($sent['messages'][0]['content'], 'Иван Петров'),
+		$sent['messages'][1],
+		str_contains((string)$transport->sent[0]['body'], '1568'),
+	],
+	[['type' => 'json_object'], true, true, true, ['role' => 'user', 'content' => $scoringMarkers['transcript']], false]
+);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('Оценить не могу')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+Check::same('оценка: не JSON — provider_bad_response', $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->errorCode, 'provider_bad_response');
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('ответ по промпту ядра')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+Check::same('оценка: без критериев — промпт ядра, без json_object', [$chat->run($copilot('call_scoring', ['transcript' => 'т', 'criteria' => " \n "]))->text, isset(json_decode($transport->sent[0]['body'], true)['response_format'])], ['ответ по промпту ядра', false]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('ответ по промпту ядра')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+Check::same('оценка: без транскрипта — промпт ядра', $chat->run($copilot('call_scoring', ['criteria' => 'Поздоровался']))->text, 'ответ по промпту ядра');
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"x":1}')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+Check::same('оценка: свои промпты выключены — ответ как есть, без json_object', [$chat->run($copilot('call_scoring', $scoringMarkers))->text, isset(json_decode($transport->sent[0]['body'], true)['response_format'])], ['{"x":1}', false]);
+
+Check::same('оценка: критерии массивом тоже принимаются', CopilotPrompt::getCode($copilot('call_scoring', ['transcript' => 'т', 'criteria' => ['А', ' ', 'Б']])), 'call_scoring');
 
 Check::finish();
