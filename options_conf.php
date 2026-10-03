@@ -12,7 +12,7 @@ use Shef\ToolsAi\Main\Setup;
  * языковой файл lang/ru/options.php
  *
  * Tab(prefix)->Option(code) ~> код свойства: prefix_code. Коды вкладок
- * (DEF, API, DEAL, CHAT) менять нельзя — их читает Shef\ToolsAi\Config.
+ * (DEF, API, DEAL, CHAT, EMAIL) менять нельзя — их читает Shef\ToolsAi\Config.
  */
 
 $response = ShOptionsConfig::getInstance(
@@ -381,6 +381,81 @@ $options->addTab(
 			(new Options\NumberInt('script'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_script'))
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_script_descr'))
+		)
+);
+// endregion ////
+
+// region Письма (1.7.0) ////
+/**
+ * Письма в CRM (Agent\EmailAgent): резюме входящего, дела менеджеру, оценка
+ * исходящего, контроль скорости ответа. Штатного ИИ для писем в CRM нет.
+ * Код вкладки EMAIL читает Config.
+ */
+$options->addTab(
+	(new Options\Tab('EMAIL'))
+		->setName(Loc::getMessage($options->moduleId.'_TAB_EMAIL_NAME'))
+		->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_TITLE'))
+		->addOption(
+			(new Options\RowInfo('About'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_About', [
+					'#URL#' => Constants::STATS_FILE.'?lang='.LANGUAGE_ID,
+				]))
+				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\Checkbox('summary'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_summary'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_summary_descr'))
+		)
+		->addOption(
+			(new Options\Checkbox('todos'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_todos'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_todos_descr'))
+		)
+		->addOption(
+			(new Options\Checkbox('review'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_review'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_review_descr'))
+		)
+		->addOption(
+			(new Options\Checkbox('reply'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_reply'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_reply_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('maxperrun'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_maxperrun'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_maxperrun_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('days'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_days'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_days_descr'))
+		)
+		->addOption(
+			// Критерий на строку; пусто — встроенные (Email\EmailPrompt::DEFAULT_CRITERIA).
+			(new Options\TextArea('criteria'))
+				->setRows(6)
+				->setCols(60)
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_criteria'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_criteria_descr', [
+					'#DEFAULT#' => htmlspecialcharsbx(implode('; ', \Shef\ToolsAi\Email\EmailPrompt::DEFAULT_CRITERIA)),
+				]))
+		)
+		->addOption(
+			(new Options\NumberInt('replyhours'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_replyhours'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_replyhours_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('escalatehours'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_escalatehours'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_escalatehours_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('senior'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_EMAIL_senior'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_EMAIL_senior_descr'))
 		)
 );
 // endregion ////

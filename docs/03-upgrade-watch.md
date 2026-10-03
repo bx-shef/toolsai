@@ -264,6 +264,20 @@ ID сессии и на подбор скрипта (`CopilotCallAssessmentContr
 ([06-chats.md](06-chats.md)). После обновления crm/imopenlines —
 `ACTIVITIES=<id> php -f cli/chat-assessment.php` на одном закрытом чате.
 
+### 11в. Письма (1.7.0)
+
+Модуль читает письма CRM сам ([07-emails.md](07-emails.md)): дело
+`TYPE_ID = 4`, `PROVIDER_ID = CRM_EMAIL`, сжатое тело
+(`PROVIDER_TYPE_ID = EMAIL_COMPRESSED`) — из `b_crm_act_mail_body` по
+`b_crm_act_mail_body_bind` или по `ASSOCIATED_ENTITY_ID` при
+`crm::compress_mail_act_stepper_in_progress`, отправитель —
+`SETTINGS.EMAIL_META.from`. Поменяет CRM хранение тела — модель получит
+только начало письма (200 символов из `DESCRIPTION`), не сломается, но
+резюме обеднеет. Сменит mail шаблон цитаты (`MAIL_QUOTE_MESSAGE_HEADER`,
+`blockquote`) — письма пойдут с цитатой. Появится у CRM свой ИИ для писем —
+сравнить и решить, нужен ли модульный. После обновления crm/mail —
+`ACTIVITIES=<id> php -f cli/emails.php` на одном входящем письме.
+
 ### 12. Таймаут 5 секунд
 
 `ThirdParty.php:24`. Если Битрикс его увеличит — нам только легче. Если

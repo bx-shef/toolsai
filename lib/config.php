@@ -38,6 +38,11 @@ class Config
 	/** Оценка чатов (1.6.0): оценок за прогон и окно «закрыт за последние N дней». */
 	public const DEFAULT_CHAT_MAX_PER_RUN = 20;
 	public const DEFAULT_CHAT_DAYS = 3;
+	/** Письма (1.7.0): разборов моделью за прогон, окно, пороги скорости ответа (часы). */
+	public const DEFAULT_EMAIL_MAX_PER_RUN = 20;
+	public const DEFAULT_EMAIL_DAYS = 3;
+	public const DEFAULT_EMAIL_REPLY_HOURS = 4;
+	public const DEFAULT_EMAIL_ESCALATE_HOURS = 24;
 
 	/**
 	 * Настройки анализа сделок до 1.1.0. Теперь это поля профилей
@@ -525,4 +530,76 @@ class Config
 	}
 	// endregion ////
 
+	// region Письма (1.7.0) ////
+	/** Резюме входящего письма клиента в ленту сделки (лида). */
+	public function isEmailSummaryEnabled(): bool
+	{
+		return OptionParser::flag($this->get('EMAIL_summary'));
+	}
+
+	/** Дела менеджеру по входящему письму (до 3). */
+	public function isEmailTodosEnabled(): bool
+	{
+		return OptionParser::flag($this->get('EMAIL_todos'));
+	}
+
+	/** Оценка исходящего письма менеджера по критериям. */
+	public function isEmailReviewEnabled(): bool
+	{
+		return OptionParser::flag($this->get('EMAIL_review'));
+	}
+
+	/** Контроль скорости ответа на письмо клиента — без модели. */
+	public function isEmailReplyControlEnabled(): bool
+	{
+		return OptionParser::flag($this->get('EMAIL_reply'));
+	}
+
+	/** Хоть одна функция писем включена — агенту есть что делать. */
+	public function isEmailEnabled(): bool
+	{
+		return $this->isEmailSummaryEnabled() || $this->isEmailTodosEnabled() || $this->isEmailReviewEnabled() || $this->isEmailReplyControlEnabled();
+	}
+
+	/** Запросов к модели за прогон (входящие и исходящие вместе): 1..200, по умолчанию 20. */
+	public function getEmailMaxPerRun(): int
+	{
+		return OptionParser::int($this->get('EMAIL_maxperrun'), static::DEFAULT_EMAIL_MAX_PER_RUN, 1, 200);
+	}
+
+	/** Письма за последние N дней: 1..60, по умолчанию 3. */
+	public function getEmailDays(): int
+	{
+		return OptionParser::int($this->get('EMAIL_days'), static::DEFAULT_EMAIL_DAYS, 1, 60);
+	}
+
+	/**
+	 * Критерии оценки исходящего письма: строка — критерий; пусто — встроенные
+	 * (Email\EmailPrompt::DEFAULT_CRITERIA).
+	 *
+	 * @return list<string>
+	 */
+	public function getEmailCriteria(): array
+	{
+		return \Shef\ToolsAi\Email\EmailPrompt::parseCriteria($this->get('EMAIL_criteria'));
+	}
+
+	/** Дело менеджеру, если клиент ждёт ответа дольше N часов (простых, не рабочих): 1..168, по умолчанию 4. */
+	public function getEmailReplyHours(): int
+	{
+		return OptionParser::int($this->get('EMAIL_replyhours'), static::DEFAULT_EMAIL_REPLY_HOURS, 1, 168);
+	}
+
+	/** Дело старшему, если клиент ждёт ответа дольше N часов: 1..720, по умолчанию 24. */
+	public function getEmailEscalateHours(): int
+	{
+		return OptionParser::int($this->get('EMAIL_escalatehours'), static::DEFAULT_EMAIL_ESCALATE_HOURS, 1, 720);
+	}
+
+	/** Старший для писем, если у сделки нет профиля анализа со старшим. 0 — не задан. */
+	public function getEmailSeniorId(): int
+	{
+		return OptionParser::id($this->get('EMAIL_senior'));
+	}
+	// endregion ////
 }

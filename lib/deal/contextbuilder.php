@@ -7,6 +7,8 @@ use Bitrix\Crm\ActivityTable;
 use Bitrix\Crm\History\Entity\DealStageHistoryTable;
 use Bitrix\Crm\Service\Container as CrmContainer;
 use Bitrix\Main\Loader;
+use Shef\ToolsAi\Email\EmailSource;
+use Shef\ToolsAi\Email\ReplyClock;
 
 /**
  * Сбор фактов о сделке для промпта — из CRM.
@@ -31,6 +33,8 @@ final class ContextBuilder implements FactsSourceInterface
 	private const ACTIVITIES_LIMIT = 200;
 	/** Сколько последних звонков описывать резюме и оценкой. */
 	private const CALLS_LIMIT = 3;
+	/** Сколько резюме последних входящих писем класть в сводку (1.7.0). */
+	private const EMAILS_LIMIT = 2;
 
 	/**
 	 * @param int $ignoreAuthorId дела этого автора не считаются активностью —
@@ -71,6 +75,8 @@ final class ContextBuilder implements FactsSourceInterface
 		$oldestOverdueAt = null;
 		$notes = [];
 		$calls = [];
+		$timeline = [];
+		$incomingEmails = [];
 
 		// От свежего к старому.
 		foreach($activities as $activity)
@@ -79,6 +85,11 @@ final class ContextBuilder implements FactsSourceInterface
 			if($this->ignoreAuthorId <= 0 || (int)($activity['AUTHOR_ID'] ?? 0) !== $this->ignoreAuthorId)
 			{
 				$lastActivity = max($lastActivity, $time);
+			}
+			$timeline[(int)$activity['ID']] = ['type' => (int)$activity['TYPE_ID'], 'direction' => (int)$activity['DIRECTION'], 'at' => $time];
+			if((int)$activity['TYPE_ID'] === \CCrmActivityType::Email && (int)$activity['DIRECTION'] === \CCrmActivityDirection::Incoming)
+			{
+				$incomingEmails[] = (int)$activity['ID'];
 			}
 			$deadline = $activity['DEADLINE'] ?? null;
 			$deadline = $deadline instanceof \Bitrix\Main\Type\DateTime ? $deadline->getTimestamp() : null;
@@ -124,6 +135,7 @@ final class ContextBuilder implements FactsSourceInterface
 		}
 
 		$createdAt = $created instanceof \Bitrix\Main\Type\DateTime ? $created->getTimestamp() : $now;
+		[$emailNotes, $emailWaitingHours] = $this->getEmailFacts($incomingEmails, $timeline, $now);
 
 		return new DealFacts(
 			dealId: $dealId,
@@ -141,10 +153,12 @@ final class ContextBuilder implements FactsSourceInterface
 			categoryId: (int)$item->getCategoryId(),
 			assignedById: (int)$item->getAssignedById(),
 			openActivities: $openActivities,
-			clientType: $this->getClientType($item),
+			clientType: static::getClientType($item),
 			overdueActivities: $overdueActivities,
 			oldestOverdueAt: $oldestOverdueAt,
 			callNotes: $this->getCallNotes($calls),
+			emailNotes: $emailNotes,
+			emailWaitingHours: $emailWaitingHours,
 		);
 	}
 
@@ -217,6 +231,38 @@ final class ContextBuilder implements FactsSourceInterface
 	}
 
 	/**
+	 * Письма в сводке (1.7.0): резюме последних входящих, которые разобрал
+	 * модуль (Email\EmailSource::getDealNotes()), и сколько часов клиент
+	 * ждёт ответа (Email\ReplyClock::waitingSince()). Письма, которые
+	 * модуль признал не клиентскими (спам, автоответ), ответа не ждут. Сбой
+	 * таблицы писем — без резюме, анализ не рвём.
+	 *
+	 * @param int[] $incomingIds входящие письма сделки, от свежего к старому
+	 * @param array<int, array{type: int, direction: int, at: int}> $timeline дела сделки по ID
+	 * @return array{0: string[], 1: ?int}
+	 */
+	private function getEmailFacts(array $incomingIds, array $timeline, int $now): array
+	{
+		$notes = [];
+		try
+		{
+			$ids = array_slice($incomingIds, 0, 50);
+			$notes = EmailSource::getDealNotes($ids, self::EMAILS_LIMIT);
+			foreach(EmailSource::getNotClientIds($ids) as $id)
+			{
+				unset($timeline[$id]);
+			}
+		}
+		catch(\Throwable)
+		{
+		}
+
+		$since = ReplyClock::waitingSince(array_values($timeline));
+
+		return [$notes, $since !== null ? ReplyClock::hours($since, $now) : null];
+	}
+
+	/**
 	 * @return array[] от свежего к старому
 	 */
 	private function getActivities(int $dealId): array
@@ -249,8 +295,9 @@ final class ContextBuilder implements FactsSourceInterface
 	 * ClientType::pickClient()). Перевод в коды — как у речевой аналитики
 	 * (AssessmentClientTypeResolver::resolveByIdentifier()), см. ClientType.
 	 * Сбой или нет клиента — null: подойдёт только профиль «любой».
+	 * Им же подбирают профиль (и старшего) письма — Email\EmailSource.
 	 */
-	private function getClientType(\Bitrix\Crm\Item $item): ?int
+	public static function getClientType(\Bitrix\Crm\Item $item): ?int
 	{
 		if(!class_exists(\Bitrix\Crm\Client\ClientTypeResolver::class))
 		{

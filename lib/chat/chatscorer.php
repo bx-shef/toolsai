@@ -108,8 +108,8 @@ final class ChatScorer
 		return ['scoring' => $scoring, 'result' => $result];
 	}
 
-	/** Объект от первой «{» до последней «}», как ищет его CRM. */
-	private static function extractObject(string $text): ?array
+	/** Объект от первой «{» до последней «}», как ищет его CRM. Им же пользуются письма (Email\EmailAnalyzer). */
+	public static function extractObject(string $text): ?array
 	{
 		$start = strpos($text, '{');
 		$end = strrpos($text, '}');

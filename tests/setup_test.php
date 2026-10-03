@@ -265,8 +265,9 @@ Check::same('BaaS: выключенный — включён', [$report['crm::AI
 Check::same('движки не регистрируются', $report['engine *']['ok'], false);
 Check::same('и отчёт говорит почему', str_contains($report['engine *']['message'], 'внешний адрес'), true);
 Check::same('в ядро ничего не ушло', \Bitrix\AI\ThirdParty\Manager::$calls, []);
-Check::same('агенты зарегистрированы: анализ сделок и оценка чатов', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME]);
+Check::same('агенты зарегистрированы: анализ сделок, оценка чатов, письма', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME, Setup::EMAIL_AGENT_NAME]);
 Check::same('таблица оценок чатов — при включении', $report['chat table']['ok'] ?? null, true);
+Check::same('таблица писем — при включении', $report['email table']['ok'] ?? null, true);
 
 Check::same('без движков выбирать нечего', array_filter(array_keys($report), static fn(string $key): bool => str_starts_with($key, 'selected')), []);
 
@@ -310,19 +311,19 @@ Check::same('BaaS уже включён — не трогаем', \Bitrix\Crm\In
 Option::set('shef.toolsai', 'SYS_baasset', '');
 $setup()->ensureBaasIgnored();
 Check::same('включён не нами — пометки нет, удаление его не снимет', Option::get('shef.toolsai', 'SYS_baasset'), '');
-Check::same('агентов по одному', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME]);
-Check::same('интервал по умолчанию — час, у обоих', [\CAgent::$intervals[Setup::AGENT_NAME], \CAgent::$intervals[Setup::CHAT_AGENT_NAME]], [3600, 3600]);
+Check::same('агентов по одному', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME, Setup::EMAIL_AGENT_NAME]);
+Check::same('интервал по умолчанию — час, у всех', [\CAgent::$intervals[Setup::AGENT_NAME], \CAgent::$intervals[Setup::CHAT_AGENT_NAME], \CAgent::$intervals[Setup::EMAIL_AGENT_NAME]], [3600, 3600, 3600]);
 Check::same('повторное включение интервал не трогает', \CAgent::$updates, []);
 
 Check::group('интервал агента');
 
 \CAgent::$intervals[Setup::AGENT_NAME] = 86400;   // агент из 1.3.0 — раз в сутки
 Check::same('старый агент обновлён', [$setup()->ensureAgent(), \CAgent::$updates], [true, [['AGENT_INTERVAL' => 3600]]]);
-Check::same('и по-прежнему по одному', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME]);
+Check::same('и по-прежнему по одному', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME, Setup::EMAIL_AGENT_NAME]);
 \CAgent::$updates = [];
 Option::set('shef.toolsai', 'DEAL_interval', '15');
 $setup()->ensureAgent();
-Check::same('настройка в минутах — обоим агентам', [\CAgent::$intervals[Setup::AGENT_NAME], \CAgent::$intervals[Setup::CHAT_AGENT_NAME]], [900, 900]);
+Check::same('настройка в минутах — всем агентам', [\CAgent::$intervals[Setup::AGENT_NAME], \CAgent::$intervals[Setup::CHAT_AGENT_NAME], \CAgent::$intervals[Setup::EMAIL_AGENT_NAME]], [900, 900, 900]);
 Option::set('shef.toolsai', 'DEAL_interval', '1');
 Check::same('меньше 10 минут — умолчание, а не «каждый хит»', (new Config())->getAgentInterval(), 3600);
 Option::set('shef.toolsai', 'DEAL_interval', 'час');
@@ -475,7 +476,7 @@ Check::group('сбой настроек ИИ не обрывает прогон'
 \CAgent::$agents = [];
 $report = $setup()->run($portal.'/www', $root);
 Check::same('отчёт о сбое', [$report['selected *']['ok'] ?? null, str_contains($report['selected *']['message'] ?? '', 'не прочитались')], [false, true]);
-Check::same('агенты всё равно зарегистрированы', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME]);
+Check::same('агенты всё равно зарегистрированы', \CAgent::$agents, [Setup::AGENT_NAME, Setup::CHAT_AGENT_NAME, Setup::EMAIL_AGENT_NAME]);
 \Bitrix\AI\Tuning\Manager::$throw = false;
 
 Check::group('внешний адрес без схемы — не «не задан»');
