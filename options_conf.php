@@ -158,10 +158,33 @@ $options->addTab(
 		)
 );
 
+// region Вкладка API: общие настройки и точки доступа направлений (1.5.0) ////
+/**
+ * Куда сейчас смотрит направление: адрес без ключа и есть ли ключ. Ключ не
+ * показываем и здесь: его поле ниже — обычное текстовое (поля-пароля в
+ * shef.options нет), а в подсказку он попал бы второй раз.
+ */
+$showEndpoint = static function(string $direction) use ($config, $options): string
+{
+	$endpoint = $config->getEndpoint($direction);
+
+	return Loc::getMessage($options->moduleId.'_TAB_API_now', [
+		'#URL#' => htmlspecialcharsbx($endpoint->getDisplayUrl()),
+		'#KEY#' => Loc::getMessage($options->moduleId.'_TAB_API_now_key_'.($endpoint->apiKey !== '' ? 'Y' : 'N')),
+		'#MODEL#' => htmlspecialcharsbx($endpoint->model),
+		'#TIMEOUT#' => $endpoint->timeout,
+	]);
+};
+
 $options->addTab(
 	(new Options\Tab('API'))
 		->setName(Loc::getMessage($options->moduleId.'_TAB_API_NAME'))
 		->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_TITLE'))
+		->addOption(
+			(new Options\RowInfo('Common'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_Common'))
+				->setType(Options\TypeUIAlert::Note)
+		)
 		->addOption(
 			(new Options\Text('baseurl'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_baseurl'))
@@ -173,27 +196,63 @@ $options->addTab(
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_apikey_descr'))
 		)
 		->addOption(
+			(new Options\NumberInt('timeout'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_timeout'))
+		)
+		// Распознавание (audio)
+		->addOption(
+			(new Options\RowInfo('Asr'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_Asr', ['#NOW#' => $showEndpoint(Config::DIRECTION_AUDIO)]))
+				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\Text('asrbaseurl'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrbaseurl'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_asrbaseurl_descr'))
+		)
+		->addOption(
+			(new Options\Text('asrapikey'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrapikey'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_ownkey_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('asrtimeout'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrtimeout'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_owntimeout_descr'))
+		)
+		->addOption(
 			(new Options\Text('asrmodel'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrmodel'))
-		)
-		->addOption(
-			(new Options\Text('llmmodel'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmmodel'))
-		)
-		->addOption(
-			(new Options\Text('llmextra'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmextra'))
-				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_llmextra_descr'))
-		)
-		->addOption(
-			(new Options\Checkbox('ownprompts'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts'))
-				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts_descr'))
 		)
 		->addOption(
 			(new Options\Text('asrprice'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrprice'))
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_price_descr'))
+		)
+		// Текст Копилота (text)
+		->addOption(
+			(new Options\RowInfo('Llm'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_Llm', ['#NOW#' => $showEndpoint(Config::DIRECTION_TEXT)]))
+				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\Text('llmbaseurl'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmbaseurl'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_llmbaseurl_descr'))
+		)
+		->addOption(
+			(new Options\Text('llmapikey'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmapikey'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_ownkey_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('llmtimeout'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmtimeout'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_owntimeout_descr'))
+		)
+		->addOption(
+			(new Options\Text('llmmodel'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmmodel'))
 		)
 		->addOption(
 			(new Options\Text('llmpricein'))
@@ -206,10 +265,53 @@ $options->addTab(
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_price_descr'))
 		)
 		->addOption(
-			(new Options\NumberInt('timeout'))
-				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_timeout'))
+			(new Options\Text('llmextra'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmextra'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_llmextra_descr'))
+		)
+		->addOption(
+			(new Options\Checkbox('ownprompts'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_ownprompts_descr'))
+		)
+		// Анализ сделок
+		->addOption(
+			(new Options\RowInfo('Deal'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_Deal', ['#NOW#' => $showEndpoint(Config::DIRECTION_DEAL)]))
+				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\Text('dealbaseurl'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealbaseurl'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealbaseurl_descr'))
+		)
+		->addOption(
+			(new Options\Text('dealapikey'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealapikey'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealkey_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('dealtimeout'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealtimeout'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealfallback_descr'))
+		)
+		->addOption(
+			(new Options\Text('dealmodel'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealmodel'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealfallback_descr'))
+		)
+		->addOption(
+			(new Options\Text('dealpricein'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealpricein'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealfallback_descr'))
+		)
+		->addOption(
+			(new Options\Text('dealpriceout'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_dealpriceout'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_dealfallback_descr'))
 		)
 );
+// endregion ////
 
 $options->addTab(
 	(new Options\Tab('DEAL'))

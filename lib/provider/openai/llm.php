@@ -10,6 +10,10 @@ use Shef\ToolsAi\Provider\ProviderException;
 
 /**
  * LLM через /chat/completions.
+ *
+ * Модель и цены — из точки доступа клиента (ApiEndpoint): у текста Копилота
+ * и у анализа сделок они могут быть разными. Дополнительные параметры
+ * (API_llmextra) и свои промпты — общие, из Config.
  */
 final class Llm implements LlmProviderInterface
 {
@@ -42,7 +46,7 @@ final class Llm implements LlmProviderInterface
 		}
 
 		return $this->request([
-			'model' => $this->config->getLlmModel(),
+			'model' => $this->client->getEndpoint()->model,
 			'messages' => $messages,
 		]);
 	}
@@ -65,7 +69,7 @@ final class Llm implements LlmProviderInterface
 			try
 			{
 				$result = $this->request([
-					'model' => $this->config->getLlmModel(),
+					'model' => $this->client->getEndpoint()->model,
 					'messages' => [
 						['role' => 'system', 'content' => $system],
 						['role' => 'user', 'content' => $user],
@@ -93,7 +97,7 @@ final class Llm implements LlmProviderInterface
 		}
 
 		$result ??= $this->request([
-			'model' => $this->config->getLlmModel(),
+			'model' => $this->client->getEndpoint()->model,
 			'messages' => [
 				[
 					'role' => 'system',
@@ -138,7 +142,7 @@ final class Llm implements LlmProviderInterface
 			throw new ProviderException('Пустой промпт: нечего отправлять модели', 'empty_prompt');
 		}
 
-		$payload = ['model' => $this->config->getLlmModel(), 'messages' => $messages];
+		$payload = ['model' => $this->client->getEndpoint()->model, 'messages' => $messages];
 		// max_tokens из «Доп. параметров модели» сильнее умолчания модуля:
 		// потолок выхода у моделей разный, превышение — 400 на каждом запросе.
 		$extraMax = $this->config->getLlmExtra()['max_tokens'] ?? null;
@@ -440,8 +444,8 @@ final class Llm implements LlmProviderInterface
 	 */
 	public function getCostMicro(int $tokensIn, int $tokensOut): int
 	{
-		return intdiv($tokensIn * $this->config->getLlmPriceInMicro() + 999_999, 1_000_000)
-			+ intdiv($tokensOut * $this->config->getLlmPriceOutMicro() + 999_999, 1_000_000);
+		return intdiv($tokensIn * $this->client->getEndpoint()->priceInMicro + 999_999, 1_000_000)
+			+ intdiv($tokensOut * $this->client->getEndpoint()->priceOutMicro + 999_999, 1_000_000);
 	}
 
 	private function request(array $payload): LlmResult

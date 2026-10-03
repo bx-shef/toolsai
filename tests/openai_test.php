@@ -81,7 +81,7 @@ $transport->responses = [
 	new Response(200, 'ID3-mp3-bytes'),
 	new Response(200, (string)json_encode(['text' => ' Менеджер: Добрый день. ', 'duration' => 125.4])),
 ];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
+$asr = new AsrProvider(new Client($config($options)->getAsrEndpoint(), $transport), $transport, $portal);
 $result = $asr->run(Request::fromArray(makeCoreRequest()));
 
 Check::same('текст без краевых пробелов', $result->text, 'Менеджер: Добрый день.');
@@ -101,7 +101,7 @@ Check::same('оценка до запроса — час записи', $asr->es
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(403, 'Forbidden')];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
+$asr = new AsrProvider(new Client($config($options)->getAsrEndpoint(), $transport), $transport, $portal);
 $error = $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())));
 Check::same('запись не скачалась — file_download', $error?->errorCode, 'file_download');
 Check::same('подсказка про public_url', str_contains((string)$error?->getMessage(), 'public_url'), true);
@@ -109,7 +109,7 @@ Check::same('адреса записи в ошибке нет', str_contains((st
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(200, 'x'), new Response(200, '{"text":""}')];
-$asr = new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal);
+$asr = new AsrProvider(new Client($config($options)->getAsrEndpoint(), $transport), $transport, $portal);
 Check::same('пустой текст — ошибка, не успех', $errorOf(static fn() => $asr->run(Request::fromArray(makeCoreRequest())))?->errorCode, 'empty_result');
 
 Check::same(
@@ -125,7 +125,7 @@ $asrWith = static function(array $responses) use ($config, $options, $portal): a
 	$transport = new FakeTransport();
 	$transport->responses = $responses;
 
-	return [new AsrProvider($config($options), new Client($config($options), $transport), $transport, $portal), $transport];
+	return [new AsrProvider(new Client($config($options)->getAsrEndpoint(), $transport), $transport, $portal), $transport];
 };
 $ok = [new Response(200, 'ID3'), new Response(200, '{"text":"ok","duration":1}')];
 
@@ -175,22 +175,22 @@ foreach($cases as $name => [$response, $code])
 {
 	$transport = new FakeTransport();
 	$transport->responses = [$response];
-	$client = new Client($config($options), $transport);
+	$client = new Client($config($options)->getTextEndpoint(), $transport);
 	$error = $errorOf(static fn() => $client->postJson('chat/completions', []));
 	Check::same($name.' -> '.$code, $error?->errorCode, $code);
 }
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(401, '{"error":{"message":"Incorrect API key sk-secret-key"}}')];
-$error = $errorOf(static fn() => (new Client($config($options), $transport))->postJson('x', []));
+$error = $errorOf(static fn() => (new Client($config($options)->getTextEndpoint(), $transport))->postJson('x', []));
 Check::same('ключ, повторённый провайдером, в ошибку не попадает', str_contains((string)$error?->getMessage(), 'sk-secret-key'), false);
 
 Check::group('LLM');
 
-$llm = new Llm($config($options), new Client($config($options), new FakeTransport()));
+$llm = new Llm($config($options), new Client($config($options)->getTextEndpoint(), new FakeTransport()));
 Check::same('1000 вх. × 0.15 + 500 вых. × 0.6 за миллион', $llm->getCostMicro(1000, 500), 450);
 Check::same('дробная цена — вверх', $llm->getCostMicro(1, 0), 1);
-Check::same('без цены — ноль', (new Llm($config([]), new Client($config([]), new FakeTransport())))->getCostMicro(1000, 1000), 0);
+Check::same('без цены — ноль', (new Llm($config([]), new Client($config([])->getTextEndpoint(), new FakeTransport())))->getCostMicro(1000, 1000), 0);
 
 Check::same('голый JSON', Llm::extractJson('{"risk": 5}'), ['risk' => 5]);
 Check::same('JSON в обёртке', Llm::extractJson("```json\n{\"risk\": 5}\n```"), ['risk' => 5]);
@@ -201,7 +201,7 @@ $transport->responses = [new Response(200, (string)json_encode([
 	'choices' => [['message' => ['content' => 'Резюме: клиент готов.']]],
 	'usage' => ['prompt_tokens' => 1200, 'completion_tokens' => 80],
 ]))];
-$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)));
 $result = $chat->run(Request::fromArray(makeCoreRequest(['category' => 'text', 'payload_prompt_text' => 'Сделай резюме'])));
 $sent = json_decode($transport->sent[0]['body'], true);
 
@@ -214,7 +214,7 @@ $transport = new FakeTransport();
 $transport->responses = [new Response(200, (string)json_encode([
 	'choices' => [['message' => ['content' => '{"risk":80,"needSenior":true,"why":"молчит","nextStep":"позвонить"}']]],
 ]))];
-$json = (new Llm($config($options), new Client($config($options), $transport)))->completeJson('sys', 'user', ['type' => 'object']);
+$json = (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->completeJson('sys', 'user', ['type' => 'object']);
 $sent = json_decode($transport->sent[0]['body'], true);
 Check::same('JSON разобран', $json->json['risk'] ?? null, 80);
 Check::same('схема ушла в response_format', $sent['response_format']['type'] ?? null, 'json_schema');
@@ -223,7 +223,7 @@ $transport = new FakeTransport();
 $transport->responses = [new Response(200, '{"choices":[{"message":{"content":"не json"}}]}')];
 Check::same(
 	'не JSON при completeJson — ошибка',
-	$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', []))?->errorCode,
+	$errorOf(static fn() => (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->completeJson('s', 'u', []))?->errorCode,
 	'provider_bad_response'
 );
 
@@ -237,7 +237,7 @@ $transport->responses = [
 	new Response(200, $good),
 	new Response(200, $good),
 ];
-$llm = new Llm($config($options), new Client($config($options), $transport));
+$llm = new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport));
 $json = $llm->completeJson('Оцени сделку.', 'факты', $schema);
 $first = json_decode($transport->sent[0]['body'], true);
 $retry = json_decode($transport->sent[1]['body'], true);
@@ -259,7 +259,7 @@ foreach([401 => 'provider_auth', 429 => 'provider_rate_limit', 500 => 'provider_
 	$transport->responses = [new Response($status, '{"error":{"message":"x"}}')];
 	Check::same(
 		$status.' — без повтора, это не формат',
-		[$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema))?->errorCode, count($transport->sent)],
+		[$errorOf(static fn() => (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->completeJson('s', 'u', $schema))?->errorCode, count($transport->sent)],
 		[$code, 1]
 	);
 }
@@ -274,7 +274,7 @@ foreach([
 	$transport->responses = [new Response(200, (string)json_encode(['choices' => [['message' => ['content' => $content]]]]))];
 	Check::same(
 		'ответ не по схеме ('.$what.') — ошибка, а не молчаливый успех',
-		$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema))?->errorCode,
+		$errorOf(static fn() => (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->completeJson('s', 'u', $schema))?->errorCode,
 		'provider_bad_response'
 	);
 }
@@ -283,13 +283,13 @@ $transport->responses = [new Response(200, (string)json_encode([
 	'choices' => [['message' => ['content' => '{"risk":"80"}']]],
 	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 10],
 ]))];
-$spent = $errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->completeJson('s', 'u', $schema));
+$spent = $errorOf(static fn() => (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->completeJson('s', 'u', $schema));
 Check::same('негодный ответ оплачен — расход едет с ошибкой', [$spent?->spentUnits, $spent?->spentMicro], [1010, 156]);
 Check::same('80.0 — целое (json_object так отвечает)', Llm::validate(['risk' => 80.0, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema), null);
 Check::same('80.5 — не целое', Llm::validate(['risk' => 80.5, 'needSenior' => true, 'why' => '', 'nextStep' => ''], $schema) !== null, true);
 $transport = new FakeTransport();
 $transport->responses = [new Response(200, '{"choices":[{"message":{"content":"ok"}}]}')];
-(new Llm($config($options + ['API_llmextra' => '{"thinking":{"type":"disabled"},"model":"evil"}']), new Client($config($options), $transport)))->complete([['role' => 'user', 'content' => 'x']]);
+(new Llm($config($options + ['API_llmextra' => '{"thinking":{"type":"disabled"},"model":"evil"}']), new Client($config($options)->getTextEndpoint(), $transport)))->complete([['role' => 'user', 'content' => 'x']]);
 $sent = json_decode($transport->sent[0]['body'], true);
 Check::same('доп. параметры — в запросе, модель не перекрыта', [$sent['thinking'] ?? null, $sent['model']], [['type' => 'disabled'], 'gpt-test']);
 Check::same('лишний ключ — не ошибка', Llm::validate(['risk' => 1, 'needSenior' => false, 'why' => '', 'nextStep' => '', 'x' => 1], $schema), null);
@@ -297,14 +297,14 @@ Check::same('лишний ключ — не ошибка', Llm::validate(['risk'
 $transport = new FakeTransport();
 Check::same(
 	'пустой промпт — до сети не доходит',
-	[$errorOf(static fn() => (new Llm($config($options), new Client($config($options), $transport)))->complete([]))?->errorCode, count($transport->sent)],
+	[$errorOf(static fn() => (new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)))->complete([]))?->errorCode, count($transport->sent)],
 	['empty_prompt', 0]
 );
 
 Check::group('ключ');
 
 $transport = new FakeTransport();
-(new Client($config(['API_apikey' => '']), $transport))->postJson('x', []);
+(new Client($config(['API_apikey' => ''])->getTextEndpoint(), $transport))->postJson('x', []);
 Check::same('пустой ключ — без заголовка', array_key_exists('Authorization', $transport->sent[0]['headers']), false);
 
 Check::group('свои промпты Копилота: резюме и поля (bx-shef/toolsai#11)');
@@ -325,7 +325,7 @@ $answer = static fn(string $content): Response => new Response(200, (string)json
 
 $transport = new FakeTransport();
 $transport->responses = [$answer("- Клиент хочет 20 стульев\n- Перезвонить в пятницу")];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('summarize_transcript', [
 	'original_message' => 'Менеджер: Добрый день. Клиент: Нужно 20 стульев.',
 	'company_name' => 'Мебель Плюс',
@@ -355,7 +355,7 @@ $fieldsMarkers = [
 ];
 $transport = new FakeTransport();
 $transport->responses = [$answer("```json\n{\"Сумма\": 1500, \"Источник\": \"звонок\", \"comment\": [\"перезвонить в пятницу\"]}\n```")];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
 $sent = json_decode($transport->sent[0]['body'], true);
 Check::same('поля: ответ — голый JSON-объект, как ждёт CRM', $result->text, '{"Сумма":1500,"Источник":"звонок","comment":["перезвонить в пятницу"]}');
@@ -374,18 +374,18 @@ Check::same(
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('поля: пустой объект — «{}», а не «[]» (CRM ищет фигурные скобки)', $chat->run($copilot('extract_form_fields', $fieldsMarkers))->text, '{}');
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('Не могу заполнить поля')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $error = $errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)));
 Check::same('поля: не JSON — provider_bad_response с оплаченным расходом', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('["a","b"]')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('поля: массив вместо объекта — тоже провал', $errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)))?->errorCode, 'provider_bad_response');
 
 $transport = new FakeTransport();
@@ -394,7 +394,7 @@ $transport->responses = [
 	$answer('{"Сумма": 10}'),
 	$answer('{"Сумма": 20}'),
 ];
-$llm = new Llm($config($own), new Client($config($own), $transport));
+$llm = new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport));
 $chat = new ChatProvider($config($own), $llm);
 $first = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
 $second = $chat->run($copilot('extract_form_fields', $fieldsMarkers));
@@ -406,22 +406,22 @@ Check::same(
 
 $transport = new FakeTransport();
 $transport->responses = [new Response(401, '{"error":{"message":"bad key"}}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('поля: 401 — без повтора', [$errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)))?->errorCode, count($transport->sent)], ['provider_auth', 1]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('Ответ')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $chat->run($copilot('call_scoring', ['original_message' => 'текст']));
 Check::same('чужой код промпта — старый путь: текст ядра как есть', json_decode($transport->sent[0]['body'], true)['messages'], [['role' => 'user', 'content' => '<1568-обфусцированный шаблон>']]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('Ответ')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $chat->run($copilot('summarize_transcript', ['original_message' => '  ']));
 Check::same('нет текста звонка — старый путь', json_decode($transport->sent[0]['body'], true)['messages'][0]['content'], '<1568-обфусцированный шаблон>');
 
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), new FakeTransport())));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), new FakeTransport())));
 Check::same(
 	'оценка расхода — по своим сообщениям, а не по шаблону ядра',
 	$chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => str_repeat('а', 2000)])) > $chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => 'а'])),
@@ -434,7 +434,7 @@ $chatOf = static function(array $responses, array $opts) use ($config): array
 	$transport = new FakeTransport();
 	$transport->responses = $responses;
 
-	return [new ChatProvider($config($opts), new Llm($config($opts), new Client($config($opts), $transport))), $transport];
+	return [new ChatProvider($config($opts), new Llm($config($opts), new Client($config($opts)->getTextEndpoint(), $transport))), $transport];
 };
 $systemOf = static fn(FakeTransport $transport, int $i = 0): string => (string)(json_decode($transport->sent[$i]['body'], true)['messages'][0]['content'] ?? '');
 
@@ -485,9 +485,9 @@ Check::same('поля без json_object: объект в тексте — бе�
 $error = $errorOf(static fn() => $chat->run($copilot('extract_form_fields', $fieldsMarkers)));
 Check::same('поля без json_object: не JSON — provider_bad_response с расходом', [$error?->errorCode, $error?->spentUnits], ['provider_bad_response', 1100]);
 
-Check::same('completeJsonObject без сообщений — empty_prompt', $errorOf(static fn() => (new Llm($config($own), new Client($config($own), new FakeTransport())))->completeJsonObject([]))?->errorCode, 'empty_prompt');
+Check::same('completeJsonObject без сообщений — empty_prompt', $errorOf(static fn() => (new Llm($config($own), new Client($config($own)->getTextEndpoint(), new FakeTransport())))->completeJsonObject([]))?->errorCode, 'empty_prompt');
 
-$llm = new Llm($config($own), new Client($config($own), new FakeTransport()));
+$llm = new Llm($config($own), new Client($config($own)->getTextEndpoint(), new FakeTransport()));
 $chat = new ChatProvider($config($own), $llm);
 Check::same('оценка расхода закладывает ответ модели (2000 токенов выхода)', $chat->estimateCostMicro($copilot('summarize_transcript', ['original_message' => 'а'])) >= $llm->getCostMicro(1, 2000), true);
 
@@ -510,7 +510,7 @@ $transport->responses = [$answer((string)json_encode([
 	'recommendations' => 'Предложить визит в магазин.',
 	'ignore' => 'лишний ключ',
 ], JSON_UNESCAPED_UNICODE))];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('call_scoring', $scoringMarkers));
 $sent = json_decode($transport->sent[0]['body'], true);
 Check::same('оценка: ответ приведён к форме CRM, мусор и лишние ключи убраны', json_decode($result->text, true), [
@@ -536,28 +536,28 @@ Check::same(
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('Оценить не могу')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('оценка: не JSON — provider_bad_response', $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->errorCode, 'provider_bad_response');
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"call_review":{"criteria":[{"criterion":"","status":true}]},"overall_summary":"ok","recommendations":"нет"}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
 Check::same('оценка: ни одного критерия после разбора — provider_bad_response с расходом, не SUCCESS', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('ответ по промпту ядра')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('оценка: без критериев — промпт ядра, без json_object', [$chat->run($copilot('call_scoring', ['transcript' => 'т', 'criteria' => " \n "]))->text, isset(json_decode($transport->sent[0]['body'], true)['response_format'])], ['ответ по промпту ядра', false]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('ответ по промпту ядра')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('оценка: без транскрипта — промпт ядра', $chat->run($copilot('call_scoring', ['criteria' => 'Поздоровался']))->text, 'ответ по промпту ядра');
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"x":1}')];
-$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)));
 Check::same('оценка: свои промпты выключены — ответ как есть, без json_object', [$chat->run($copilot('call_scoring', $scoringMarkers))->text, isset(json_decode($transport->sent[0]['body'], true)['response_format'])], ['{"x":1}', false]);
 
 Check::same('оценка: критерии массивом тоже принимаются', CopilotPrompt::getCode($copilot('call_scoring', ['transcript' => 'т', 'criteria' => ['А', ' ', 'Б']])), 'call_scoring');
@@ -566,7 +566,7 @@ Check::group('json_object: негодный ответ — один повтор
 
 $transport = new FakeTransport();
 $transport->responses = [$answer(''), $answer('{"call_review":{"criteria":[{"criterion":"Поздоровался","status":true,"explanation":"да"}]},"overall_summary":"ок","recommendations":"нет"}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('call_scoring', $scoringMarkers));
 Check::same('оценка: пустой ответ — повтор, второй ответ принят, расход за обе попытки', [count($transport->sent), json_decode($result->text, true)['call_review']['criteria'][0]['criterion'] ?? null, $result->units], [2, 'Поздоровался', 2200]);
 Check::same('оценка: лимит ответа 8192 токена — не выше потолка deepseek-chat (умолчание обрезало JSON)', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 8192);
@@ -574,12 +574,12 @@ Check::same('оценка: лимит ответа 8192 токена — не в
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"call_review":{"criteria":[{"criterion":"Поздоровался","status":true,"explanation":"да"}]},"overall_summary":"ок","recommendations":"нет"}')];
 $withMax = $own + ['API_llmextra' => '{"max_tokens":3000}'];
-$chat = new ChatProvider($config($withMax), new Llm($config($withMax), new Client($config($withMax), $transport)));
+$chat = new ChatProvider($config($withMax), new Llm($config($withMax), new Client($config($withMax)->getTextEndpoint(), $transport)));
 $chat->run($copilot('call_scoring', $scoringMarkers));
 Check::same('оценка: max_tokens из «Доп. параметров» сильнее умолчания модуля', json_decode($transport->sent[0]['body'], true)['max_tokens'] ?? null, 3000);
 
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), new FakeTransport())));
-Check::same('оценка: расход до вызова закладывает длинный ответ (4000 токенов выхода)', $chat->estimateCostMicro($copilot('call_scoring', $scoringMarkers)) >= (new Llm($config($own), new Client($config($own), new FakeTransport())))->getCostMicro(1, 4000), true);
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), new FakeTransport())));
+Check::same('оценка: расход до вызова закладывает длинный ответ (4000 токенов выхода)', $chat->estimateCostMicro($copilot('call_scoring', $scoringMarkers)) >= (new Llm($config($own), new Client($config($own)->getTextEndpoint(), new FakeTransport())))->getCostMicro(1, 4000), true);
 
 $transport = new FakeTransport();
 $cut = new Response(200, (string)json_encode([
@@ -587,7 +587,7 @@ $cut = new Response(200, (string)json_encode([
 	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 100],
 ]));
 $transport->responses = [$cut, $cut];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
 Check::same(
 	'оценка: обрезан дважды — ошибка с причиной (finish_reason) без текста разговора и с ценой обеих попыток',
@@ -597,7 +597,7 @@ Check::same(
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"Сумма": 1}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $chat->run($copilot('extract_form_fields', $fieldsMarkers));
 Check::same('поля: max_tokens не задаётся (умолчание провайдера)', array_key_exists('max_tokens', json_decode($transport->sent[0]['body'], true)), false);
 
@@ -611,7 +611,7 @@ Check::same('repairJson: уже экранированное не трогает
 
 $transport = new FakeTransport();
 $transport->responses = [$answer("{\"call_review\": {\"criteria\": [{\"criterion\": \"Поздоровался\", \"status\": true, \"explanation\": \"Сказал \"Добрый день, магазин\"\nсразу\"}]}, \"overall_summary\": \"ок\", \"recommendations\": \"нет\"}")];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('call_scoring', $scoringMarkers));
 Check::same('оценка: ответ с прямыми кавычками и переносом — починен с первой попытки', [count($transport->sent), json_decode($result->text, true)['call_review']['criteria'][0]['explanation'] ?? null], [1, "Сказал \"Добрый день, магазин\"\nсразу"]);
 $system = json_decode($transport->sent[0]['body'], true)['messages'][0]['content'];
@@ -649,7 +649,7 @@ $unclosed = '{"call_review": {"criteria": [{"criterion": "Поздоровалс
 Check::same('оценка: исходный ответ правда не разбирается (иначе тест ниже ничего не держит)', json_decode($unclosed), null);
 $transport = new FakeTransport();
 $transport->responses = [$answer($unclosed)];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = $chat->run($copilot('call_scoring', $scoringMarkers));
 Check::same(
 	'оценка: незакрытый call_review (боевой случай) — починен с первой попытки, итог и рекомендации на месте',
@@ -663,18 +663,18 @@ $short = new Response(200, (string)json_encode([
 	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 100],
 ]));
 $transport->responses = [$short, $short];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
 Check::same('оценка: обрезанный ответ (length) скобками не чинится — повтор и ошибка', [$error?->errorCode, count($transport->sent)], ['provider_bad_response', 2]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"a": "x", "b"}'), $answer('{"a": "x", "b"}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('оценка: не чинится — в ошибке подсчёт скобок, без текста ответа', str_contains((string)$errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->getMessage(), 'скобки { 1/1, [ 0/0)'), true);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"a": [1, 2'), $answer('{"a": [1, 2')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 Check::same('оценка: не чинится — в ошибке тип ошибки разбора', str_contains((string)$errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->getMessage(), 'разбор: '), true);
 
 Check::group('свой промпт: дела после разговора (client_dialogue_action_extraction)');
@@ -699,7 +699,7 @@ $transport->responses = [$answer((string)json_encode([
 		['title' => str_repeat('я', 300), 'responsible_person' => 'Пётр', 'deadline' => 'завтра'],
 	],
 ], JSON_UNESCAPED_UNICODE))];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = json_decode($chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, true);
 $sent = json_decode($transport->sent[0]['body'], true);
 Check::same('дела: ответ приведён к форме CRM — пустые и мусор выброшены, длина обрезана, срок не по формату — null, ответственный по умолчанию', $result, [
@@ -740,19 +740,72 @@ Check::same(
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"actions": []}')];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $error = $errorOf(static fn() => $chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers)));
 Check::same('дела: нет is_client — provider_bad_response с расходом', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer("{\"is_client\": false, \"reason_if_is_client_false\": \"Сказал \"ошибся номером\"\nи положил трубку\", \"actions\": []}")];
-$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own)->getTextEndpoint(), $transport)));
 $result = json_decode($chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, true);
 Check::same('дела: прямые кавычки и перенос строки в причине — починено с первой попытки', [count($transport->sent), $result], [1, ['is_client' => false, 'reason_if_is_client_false' => "Сказал \"ошибся номером\"\nи положил трубку", 'actions' => []]]);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"x":1}')];
-$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options)->getTextEndpoint(), $transport)));
 Check::same('дела: свои промпты выключены — ответ как есть', $chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, '{"x":1}');
+
+Check::group('свои точки доступа: распознавание и текст — к разным провайдерам (1.5.0)');
+
+$split = array_replace($options, [
+	'API_asrbaseurl' => 'http://127.0.0.1:8000/v1',
+	'API_asrapikey' => 'asr-local-key',
+	'API_asrtimeout' => '600',
+	'API_llmbaseurl' => 'https://api.deepseek.com/v1',
+	'API_llmapikey' => 'sk-deepseek-key',
+	'API_llmmodel' => 'deepseek-chat',
+]);
+
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, 'ID3'), new Response(200, '{"text":"ok","duration":60}')];
+(new AsrProvider(new Client($config($split)->getAsrEndpoint(), $transport), $transport, $portal))->run(Request::fromArray(makeCoreRequest()));
+Check::same(
+	'распознавание — на свой адрес, со своим ключом и таймаутом',
+	[$transport->sent[1]['url'], $transport->sent[1]['headers']['Authorization'] ?? null, $transport->sent[1]['timeout']],
+	['http://127.0.0.1:8000/v1/audio/transcriptions', 'Bearer asr-local-key', 600]
+);
+
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, 'ID3'), new Response(200, '{"text":"ok","duration":60}')];
+$noKey = array_diff_key($split, ['API_asrapikey' => true]);
+(new AsrProvider(new Client($config($noKey)->getAsrEndpoint(), $transport), $transport, $portal))->run(Request::fromArray(makeCoreRequest()));
+Check::same('свой whisper без ключа — общий ключ туда не уходит', array_key_exists('Authorization', $transport->sent[1]['headers']), false);
+
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, (string)json_encode(['choices' => [['message' => ['content' => 'резюме']]], 'usage' => ['prompt_tokens' => 1, 'completion_tokens' => 1]]))];
+(new ChatProvider($config($split), new Llm($config($split), new Client($config($split)->getTextEndpoint(), $transport))))->run(Request::fromArray(makeCoreRequest(['category' => 'text', 'prompt' => 'Резюмируй'])));
+Check::same(
+	'текст — на свой адрес, со своим ключом и моделью',
+	[$transport->sent[0]['url'], $transport->sent[0]['headers']['Authorization'] ?? null, json_decode($transport->sent[0]['body'], true)['model'] ?? null],
+	['https://api.deepseek.com/v1/chat/completions', 'Bearer sk-deepseek-key', 'deepseek-chat']
+);
+
+$transport = new FakeTransport();
+$transport->responses = [new Response(200, (string)json_encode(['choices' => [['message' => ['content' => 'x']]], 'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 0]]))];
+$dealOpts = $split + ['API_dealbaseurl' => 'https://llm.example.by/v1', 'API_dealapikey' => 'sk-deal-key', 'API_dealmodel' => 'big', 'API_dealpricein' => '2'];
+$dealResult = (new Llm($config($dealOpts), new Client($config($dealOpts)->getDealEndpoint(), $transport)))->complete([['role' => 'user', 'content' => 'x']]);
+Check::same(
+	'анализ сделок — свой адрес, ключ, модель и цена',
+	[$transport->sent[0]['url'], $transport->sent[0]['headers']['Authorization'] ?? null, json_decode($transport->sent[0]['body'], true)['model'] ?? null, $dealResult->costMicro],
+	['https://llm.example.by/v1/chat/completions', 'Bearer sk-deal-key', 'big', 2000]
+);
+
+foreach(['распознавания' => [$config($split)->getAsrEndpoint(), 'asr-local-key'], 'текста' => [$config($split)->getTextEndpoint(), 'sk-deepseek-key']] as $name => [$endpoint, $key])
+{
+	$transport = new FakeTransport();
+	$transport->responses = [new Response(401, '{"error":{"message":"Incorrect API key '.$key.'"}}')];
+	$error = $errorOf(static fn() => (new Client($endpoint, $transport))->postJson('x', []));
+	Check::same('ключ '.$name.', повторённый провайдером, в ошибку не попадает', [$error?->errorCode, str_contains((string)$error?->getMessage(), $key)], ['provider_auth', false]);
+}
 
 Check::finish();

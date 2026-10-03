@@ -5,6 +5,7 @@ namespace Shef\ToolsAi;
 use Bitrix\Main\Config\Option;
 use Shef\ToolsAi\Main\Constants;
 use Shef\ToolsAi\Main\OptionParser;
+use Shef\ToolsAi\Provider\OpenAi\ApiEndpoint;
 
 /**
  * Настройки модуля.
@@ -285,7 +286,156 @@ class Config
 
 	public function getTimeout(): int
 	{
-		return OptionParser::int($this->get('API_timeout'), static::DEFAULT_TIMEOUT, 5, 1800);
+		return $this->parseTimeout($this->get('API_timeout'), static::DEFAULT_TIMEOUT);
+	}
+
+	private function parseTimeout(mixed $raw, int $default): int
+	{
+		return OptionParser::int($raw, $default, 5, 1800);
+	}
+	// endregion ////
+
+	// region Точки доступа по направлениям (1.5.0) ////
+	/**
+	 * Направления, у которых своя точка доступа: распознавание, текст
+	 * Копилота, анализ сделок. Коды audio и text совпадают с категориями
+	 * движка.
+	 */
+	public const DIRECTION_AUDIO = Constants::CATEGORY_AUDIO;
+	public const DIRECTION_TEXT = Constants::CATEGORY_TEXT;
+	public const DIRECTION_DEAL = 'deal';
+
+	/** @return string[] */
+	public static function getDirectionList(): array
+	{
+		return [static::DIRECTION_AUDIO, static::DIRECTION_TEXT, static::DIRECTION_DEAL];
+	}
+
+	public function getEndpoint(string $direction): ApiEndpoint
+	{
+		return match($direction)
+		{
+			static::DIRECTION_AUDIO => $this->getAsrEndpoint(),
+			static::DIRECTION_DEAL => $this->getDealEndpoint(),
+			default => $this->getTextEndpoint(),
+		};
+	}
+
+	/** Общая точка: API_baseurl, API_apikey, API_timeout — откат для всех направлений. */
+	private function getCommonEndpoint(): ApiEndpoint
+	{
+		return new ApiEndpoint($this->getBaseUrl(), $this->getApiKey(), $this->getTimeout(), '');
+	}
+
+	/**
+	 * Распознавание: свои адрес, ключ, таймаут (API_asrbaseurl, API_asrapikey,
+	 * API_asrtimeout), пусто — общие. Модель и цена минуты — как были
+	 * (API_asrmodel, API_asrprice).
+	 */
+	public function getAsrEndpoint(): ApiEndpoint
+	{
+		$common = $this->getCommonEndpoint();
+		[$url, $key] = $this->resolveAccess($this->get('API_asrbaseurl'), $this->get('API_asrapikey'), $common);
+
+		return new ApiEndpoint(
+			$url,
+			$key,
+			$this->parseTimeout($this->get('API_asrtimeout'), $common->timeout),
+			$this->getAsrModel(),
+			$this->getAsrPricePerMinuteMicro(),
+		);
+	}
+
+	/**
+	 * Текст Копилота (резюме, поля, оценка, дела после разговора): свои адрес,
+	 * ключ, таймаут (API_llmbaseurl, API_llmapikey, API_llmtimeout), пусто —
+	 * общие. Модель и цены — API_llmmodel, API_llmpricein/out.
+	 */
+	public function getTextEndpoint(): ApiEndpoint
+	{
+		$common = $this->getCommonEndpoint();
+		[$url, $key] = $this->resolveAccess($this->get('API_llmbaseurl'), $this->get('API_llmapikey'), $common);
+
+		return new ApiEndpoint(
+			$url,
+			$key,
+			$this->parseTimeout($this->get('API_llmtimeout'), $common->timeout),
+			$this->getLlmModel(),
+			$this->getLlmPriceInMicro(),
+			$this->getLlmPriceOutMicro(),
+		);
+	}
+
+	/**
+	 * Анализ сделок: свои адрес, ключ, таймаут, модель, цены (API_deal*);
+	 * пусто — как у текста (а у текста пусто — общие).
+	 */
+	public function getDealEndpoint(): ApiEndpoint
+	{
+		$text = $this->getTextEndpoint();
+		[$url, $key] = $this->resolveAccess($this->get('API_dealbaseurl'), $this->get('API_dealapikey'), $text);
+		$model = trim((string)$this->get('API_dealmodel'));
+		$priceIn = $this->get('API_dealpricein');
+		$priceOut = $this->get('API_dealpriceout');
+
+		return new ApiEndpoint(
+			$url,
+			$key,
+			$this->parseTimeout($this->get('API_dealtimeout'), $text->timeout),
+			$model !== '' ? $model : $text->model,
+			static::isBlank($priceIn) ? $text->priceInMicro : OptionParser::micro($priceIn),
+			static::isBlank($priceOut) ? $text->priceOutMicro : OptionParser::micro($priceOut),
+		);
+	}
+
+	/**
+	 * Адрес и ключ направления с откатом на родителя.
+	 *
+	 * Адрес: свой, пусто — родителя. Ключ: свой; пусто — ключ родителя, но
+	 * только если и адрес родительский. Общий ключ (например, OpenAI) не
+	 * должен уехать на чужой сервер, когда администратор задал направлению
+	 * свой адрес и не задал ключ: свой whisper в Docker ключа не требует, и
+	 * запрос туда уходит без заголовка Authorization.
+	 *
+	 * @return array{0: string, 1: string}
+	 */
+	private function resolveAccess(mixed $rawUrl, mixed $rawKey, ApiEndpoint $parent): array
+	{
+		$url = OptionParser::url($rawUrl) ?: $parent->baseUrl;
+		$key = is_string($rawKey) ? trim($rawKey) : '';
+		if($key === '' && $url === $parent->baseUrl)
+		{
+			$key = $parent->apiKey;
+		}
+
+		return [$url, $key];
+	}
+
+	private static function isBlank(mixed $value): bool
+	{
+		return $value === null || (is_string($value) && trim($value) === '');
+	}
+
+	/**
+	 * Адреса API, которые заданы, но не разобрались (без схемы, с ?query):
+	 * коды настроек. Такое направление молча ушло бы на общий адрес — отчёт
+	 * и страница расхода говорят об этом вслух. Значение не отдаём: в
+	 * «адресе» с ?query бывает и ключ.
+	 *
+	 * @return string[]
+	 */
+	public function getRejectedApiUrls(): array
+	{
+		$rejected = [];
+		foreach(['API_baseurl' => $this->get('API_baseurl'), 'API_asrbaseurl' => $this->get('API_asrbaseurl'), 'API_llmbaseurl' => $this->get('API_llmbaseurl'), 'API_dealbaseurl' => $this->get('API_dealbaseurl')] as $code => $raw)
+		{
+			if(is_string($raw) && trim($raw) !== '' && OptionParser::url($raw) === '')
+			{
+				$rejected[] = $code;
+			}
+		}
+
+		return $rejected;
 	}
 	// endregion ////
 

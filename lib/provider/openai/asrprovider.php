@@ -3,7 +3,6 @@
 namespace Shef\ToolsAi\Provider\OpenAi;
 
 use Shef\ToolsAi\Completion\Request;
-use Shef\ToolsAi\Config;
 use Shef\ToolsAi\Http\Response;
 use Shef\ToolsAi\Http\TransportInterface;
 use Shef\ToolsAi\Main\Constants;
@@ -14,6 +13,10 @@ use Shef\ToolsAi\Security\CallbackGuard;
 
 /**
  * Распознавание речи через /audio/transcriptions (Whisper и совместимые).
+ *
+ * Адрес, ключ, модель и цена минуты — из точки доступа распознавания
+ * (Config::getAsrEndpoint()): это может быть свой faster-whisper в Docker на
+ * 127.0.0.1, пока текст идёт к DeepSeek.
  *
  * Запись доступна по URL из prompt.file. Он строится в
  * TranscribeCallRecording::getFileInfo() (transcribecallrecording.php:144-189)
@@ -43,7 +46,6 @@ final class AsrProvider implements ProviderInterface
 	private const REDIRECT_MAX = 3;
 
 	public function __construct(
-		private readonly Config $config,
 		private readonly Client $client,
 		private readonly TransportInterface $transport,
 		private readonly CallbackGuard $portal,
@@ -63,7 +65,7 @@ final class AsrProvider implements ProviderInterface
 
 	public function getCostMicro(float $seconds): int
 	{
-		return (int)ceil($seconds * $this->config->getAsrPricePerMinuteMicro() / 60);
+		return (int)ceil($seconds * $this->client->getEndpoint()->priceInMicro / 60);
 	}
 
 	public function run(Request $request): Result
@@ -81,7 +83,7 @@ final class AsrProvider implements ProviderInterface
 		$data = $this->client->postFile(
 			'audio/transcriptions',
 			[
-				'model' => $this->config->getAsrModel(),
+				'model' => $this->client->getEndpoint()->model,
 				'language' => $request->getLanguage(),
 				// verbose_json отдаёт длительность — по ней считается расход.
 				'response_format' => 'verbose_json',

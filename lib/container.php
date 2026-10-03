@@ -81,17 +81,28 @@ final class Container
 			return new EchoProvider();
 		}
 
-		$client = new OpenAi\Client($config, self::getTransport());
+		// Своя точка доступа у каждого направления (1.5.0): распознавание —
+		// например, свой whisper в Docker, текст — DeepSeek.
+		if($category === Constants::CATEGORY_AUDIO)
+		{
+			return new OpenAi\AsrProvider(
+				new OpenAi\Client($config->getAsrEndpoint(), self::getTransport()),
+				self::getTransport(),
+				new CallbackGuard($config->getAllowedCallbackHosts())
+			);
+		}
 
-		return $category === Constants::CATEGORY_AUDIO
-			? new OpenAi\AsrProvider($config, $client, self::getTransport(), new CallbackGuard($config->getAllowedCallbackHosts()))
-			: new OpenAi\ChatProvider($config, new OpenAi\Llm($config, $client));
+		return new OpenAi\ChatProvider($config, new OpenAi\Llm($config, new OpenAi\Client($config->getTextEndpoint(), self::getTransport())));
 	}
 
 	/**
-	 * LLM для анализа сделок — тот же провайдер, что у категории text.
+	 * LLM из настроек: включается провайдером категории text. Точка доступа —
+	 * направления: text — как у Копилота (так и для чужих модулей, навык
+	 * shef-new-ai-provider), deal — своя у анализа сделок
+	 * (Config::getDealEndpoint(): пусто — как у текста, у текста пусто —
+	 * общие).
 	 */
-	public static function getLlm(): LlmProviderInterface
+	public static function getLlm(string $direction = Config::DIRECTION_TEXT): LlmProviderInterface
 	{
 		$config = self::getConfig();
 
@@ -100,12 +111,12 @@ final class Container
 			return new EchoLlm();
 		}
 
-		return new OpenAi\Llm($config, new OpenAi\Client($config, self::getTransport()));
+		return new OpenAi\Llm($config, new OpenAi\Client($config->getEndpoint($direction), self::getTransport()));
 	}
 
 	public static function getHealthAnalyzer(): HealthAnalyzer
 	{
-		return new HealthAnalyzer(new ContextBuilder(self::getAgentUserId()), self::getLlm());
+		return new HealthAnalyzer(new ContextBuilder(self::getAgentUserId()), self::getLlm(Config::DIRECTION_DEAL));
 	}
 
 	/** Служебный пользователь агента (shef.options); нет модуля — 0. */

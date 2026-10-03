@@ -142,4 +142,56 @@ Check::same('не JSON — пусто и сломано', [$config(['API_llmextr
 Check::same('список — сломано', $config(['API_llmextra' => '[1]'])->isLlmExtraBroken(), true);
 Check::same('только защищённые ключи — не сломано, просто пусто', $config(['API_llmextra' => '{"model":"x"}'])->isLlmExtraBroken(), false);
 
+Check::group('точки доступа направлений: свой адрес, ключ, таймаут — с откатом (1.5.0)');
+
+$common = [
+	'API_baseurl' => 'https://api.openai.com/v1/',
+	'API_apikey' => ' sk-common ',
+	'API_timeout' => '90',
+	'API_asrmodel' => 'whisper-1',
+	'API_llmmodel' => 'gpt-test',
+	'API_asrprice' => '0,6',
+	'API_llmpricein' => '0.15',
+	'API_llmpriceout' => '0.6',
+];
+$view = static fn(\Shef\ToolsAi\Provider\OpenAi\ApiEndpoint $e): array => [$e->baseUrl, $e->apiKey, $e->timeout, $e->model, $e->priceInMicro, $e->priceOutMicro];
+
+// Обратная совместимость: у существующей установки новых настроек нет.
+Check::same('пусто — распознавание на общем', $view($config($common)->getAsrEndpoint()), ['https://api.openai.com/v1', 'sk-common', 90, 'whisper-1', 600_000, 0]);
+Check::same('пусто — текст на общем', $view($config($common)->getTextEndpoint()), ['https://api.openai.com/v1', 'sk-common', 90, 'gpt-test', 150_000, 600_000]);
+Check::same('пусто — сделки на общем', $view($config($common)->getDealEndpoint()), ['https://api.openai.com/v1', 'sk-common', 90, 'gpt-test', 150_000, 600_000]);
+Check::same('ничего не задано — умолчания модуля', $view($config([])->getTextEndpoint()), ['https://api.openai.com/v1', '', 120, 'gpt-4o-mini', 0, 0]);
+
+// Локальный whisper в Docker + DeepSeek: пример из docs/04-runbook.md.
+$split = array_replace($common, [
+	'API_asrbaseurl' => 'http://127.0.0.1:8000/v1',
+	'API_asrtimeout' => '600',
+	'API_asrprice' => '0',
+	'API_llmbaseurl' => 'https://api.deepseek.com/v1',
+	'API_llmapikey' => 'sk-deepseek',
+	'API_llmmodel' => 'deepseek-chat',
+]);
+Check::same(
+	'свой адрес распознавания без ключа — общий ключ туда не уходит',
+	$view($config($split)->getAsrEndpoint()),
+	['http://127.0.0.1:8000/v1', '', 600, 'whisper-1', 0, 0]
+);
+Check::same('свой ключ распознавания — свой', $config($split + ['API_asrapikey' => 'local-key'])->getAsrEndpoint()->apiKey, 'local-key');
+Check::same('свой ключ при общем адресе — свой', array_slice($view($config($common + ['API_asrapikey' => 'sk-asr'])->getAsrEndpoint()), 0, 2), ['https://api.openai.com/v1', 'sk-asr']);
+Check::same('свой адрес, совпавший с общим, — общий ключ', $config($common + ['API_asrbaseurl' => 'https://api.openai.com/v1'])->getAsrEndpoint()->apiKey, 'sk-common');
+Check::same('текст — DeepSeek со своим ключом', $view($config($split)->getTextEndpoint()), ['https://api.deepseek.com/v1', 'sk-deepseek', 90, 'deepseek-chat', 150_000, 600_000]);
+Check::same('сделки пусто — как у текста, не как общий', $view($config($split)->getDealEndpoint()), ['https://api.deepseek.com/v1', 'sk-deepseek', 90, 'deepseek-chat', 150_000, 600_000]);
+Check::same(
+	'сделки со своим — свой адрес, ключ, модель, цены, таймаут',
+	$view($config($split + ['API_dealbaseurl' => 'https://llm.example.by/v1', 'API_dealapikey' => 'sk-deal', 'API_dealmodel' => 'big', 'API_dealpricein' => '1', 'API_dealpriceout' => '2', 'API_dealtimeout' => '300'])->getDealEndpoint()),
+	['https://llm.example.by/v1', 'sk-deal', 300, 'big', 1_000_000, 2_000_000]
+);
+Check::same('сделки: свой адрес без ключа — ключ текста туда не уходит', $config($split + ['API_dealbaseurl' => 'https://llm.example.by/v1'])->getDealEndpoint()->apiKey, '');
+Check::same('сделки: цена 0 — это 0, а не цена текста', $config($split + ['API_dealpricein' => '0'])->getDealEndpoint()->priceInMicro, 0);
+Check::same('сделки: текст пуст — общий', $config($common + ['API_dealmodel' => 'x'])->getDealEndpoint()->baseUrl, 'https://api.openai.com/v1');
+Check::same('таймаут 0 и мусор — общий', [$config($split + ['API_llmtimeout' => '0'])->getTextEndpoint()->timeout, $config($common + ['API_asrtimeout' => 'abc'])->getAsrEndpoint()->timeout], [90, 90]);
+Check::same('по направлению', [$config($split)->getEndpoint('audio')->baseUrl, $config($split)->getEndpoint('text')->baseUrl, $config($split)->getEndpoint('deal')->baseUrl], ['http://127.0.0.1:8000/v1', 'https://api.deepseek.com/v1', 'https://api.deepseek.com/v1']);
+Check::same('кривой свой адрес — назван кодом, без значения', $config(['API_asrbaseurl' => '127.0.0.1:8000/v1?key=sk-x', 'API_baseurl' => 'https://ok.by'])->getRejectedApiUrls(), ['API_asrbaseurl']);
+Check::same('адрес для показа — без логина и пароля', (new \Shef\ToolsAi\Provider\OpenAi\ApiEndpoint('https://u:p@h.by/v1', 'k', 5, 'm'))->getDisplayUrl(), 'https://***@h.by/v1');
+
 Check::finish();
