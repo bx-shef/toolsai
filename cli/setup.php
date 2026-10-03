@@ -65,7 +65,7 @@ $report = getenv('ROTATE_TOKEN') === '1'
 $failed = 0;
 foreach($report as $step => $row)
 {
-	printf("  %-5s %-48s %s\n", $row['ok'] ? 'OK' : 'FAIL', $step, $row['message']);
+	printf("  %-5s %-48s %s\n", ($row['info'] ?? false) ? 'INFO' : ($row['ok'] ? 'OK' : 'FAIL'), $step, $row['message']);
 	$failed += $row['ok'] ? 0 : 1;
 }
 

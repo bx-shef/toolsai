@@ -85,8 +85,8 @@ $h = static fn(mixed $value): string => htmlspecialcharsbx((string)$value);
 		<?php foreach($setupReport as $step => $row): ?>
 			<tr class="adm-list-table-row">
 				<td class="adm-list-table-cell"><?=$h($step)?></td>
-				<td class="adm-list-table-cell" style="color:<?=$row['ok'] ? '#2e7d32' : '#c62828'?>">
-					<?=$row['ok'] ? 'OK' : 'FAIL'?> — <?=$h($row['message'])?>
+				<td class="adm-list-table-cell" style="color:<?=($row['info'] ?? false) ? '#555' : ($row['ok'] ? '#2e7d32' : '#c62828')?>">
+					<?=($row['info'] ?? false) ? 'INFO' : ($row['ok'] ? 'OK' : 'FAIL')?> — <?=$h($row['message'])?>
 				</td>
 			</tr>
 		<?php endforeach; ?>

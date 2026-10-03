@@ -54,7 +54,7 @@ unzip -Z1 shef.toolsai.zip | cut -d/ -f1 | sort -u   # ровно shef.toolsai
    настройки ИИ не пишет.
 2. Настройки модуля → «Движок» → «Выбрать движок модуля» → «Готово», в
    строке и в `/configs/?page=ai` — `sheftoolsai_audio` и
-   `sheftoolsai_text`; «Проверить и включить» — `selected …` «выбран наш».
+   `sheftoolsai_text`; «Проверить и включить» — `selected …` «выбран движок модуля …».
    Не администратором и без `sessid` в ссылке — ничего не меняется.
 3. `SELECT CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE LIKE 'sheftoolsai%'`
    — две строки, адрес с `?token=`.

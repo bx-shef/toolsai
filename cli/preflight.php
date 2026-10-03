@@ -237,19 +237,14 @@ if(Loader::includeModule('ai') && class_exists(\Bitrix\AI\Model\EngineTable::cla
 
 try
 {
-	$selection = (new Setup($config))->getEngineSelection();
-	if($selection === [])
+	// Тот же отчёт, что у «Проверить и включить»: штатный движок рядом с
+	// движком модуля — не сбой, другие сценарии CRM — для сведения.
+	foreach((new Setup($config))->checkEngineSelection() as $key => $row)
 	{
-		$line('FAIL', 'выбор в настройках ИИ', 'не читается: нет модулей ai или crm');
-	}
-	foreach($selection as $category => $value)
-	{
-		$own = Constants::getEngineCode($category);
 		$line(
-			$value === $own ? 'OK' : 'WARN',
-			'выбран в настройках ИИ: '.$category,
-			($value === null ? 'настройки нет' : ($value === '' ? 'пусто' : $value))
-			.($value === $own ? '' : ' — запишите! Модуль может заменить: «Выбрать движок модуля»')
+			($row['info'] ?? false) ? 'INFO' : ($row['ok'] ? 'OK' : ($key === '*' ? 'FAIL' : 'WARN')),
+			'выбор в настройках ИИ: '.$key,
+			$row['message']
 		);
 	}
 }
