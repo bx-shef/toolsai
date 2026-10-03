@@ -88,9 +88,42 @@ DeepSeek забывал закрыть `call_review` (боевой портал,
 Обе формы принимаются; незакрытые скобки в конце необрезанного ответа
 дописывает `Llm::repairJson()`.
 
+Дела после разговора (анализ коммуникаций, `AnalyzeCommunication`,
+`TYPE_ID = 9`, звонки и чаты открытых линий) — `payload_raw =
+"client_dialogue_action_extraction"`. Движок выбирается отдельно:
+`EventHandler::SETTINGS_ANALYZE_COMMUNICATION_ENGINE_CODE` =
+`crm_copilot_analyze_communication_engine_code`
+(`crm/lib/integration/ai/eventhandler.php:49,252-257`). Маркеры: `dialogue`
+— текст разговора (`operation/analyzecommunication.php:141-148`),
+`employee_name` — ответственный дела, `dialogue_start_datetime` —
+`START_TIME` дела, строкой как отдаёт ядро
+(`operation/payload/payload/clientdialogueactionextraction.php:22-29`), плюс
+`language`. Ответ (`AnalyzeCommunication::extractPayloadFromAIResult`,
+`analyzecommunication.php:216-266`) — JSON от первой `{` до последней `}`:
+
+* `is_client` (bool; нет ключа — CRM считает `false`);
+* `reason_if_is_client_false` — при `false` обязателен, а `actions` пусты
+  (валидатор `Dto/AnalyzeCommunicationPayload.php`), иначе ответ отвергнут;
+* `actions` — `[{title, description, responsible_person, deadline}]`: дела без
+  title и description CRM выбрасывает, берёт первые 5 (`MAX_TODO_ACTIONS`),
+  title режет до 255, description и причину — до 10000 (`:52-55`);
+* `deadline` — `DATE_FORMAT = 'Y-m-d\TH:i:s'` (`:47`); `parseDeadline()`
+  (`:492-527`) принимает ещё `Y-m-d\TH:i:sP` (и `Z`), `Y-m-d H:i:s`, `Y-m-d`
+  (тогда 23:59:59); не разобрался или пусто — «через 3 дня» (`:358-376`);
+* `responsible_person` CRM **не использует**: дело-ToDo ставится
+  ответственному исходного дела (иначе — пользователю задания), цвет
+  Копилота, `IS_AI_CREATED` (`:300-302,379-393`). «Не клиент» — дело
+  исключения (`createEntityExclusionActivity`, `:324`).
+
+Свой промпт описывает формат (RFC 8259, два примера, «ёлочки»), кто клиент,
+какие дела (до 5, без повторов, не выдумывать), срок от
+`dialogue_start_datetime`, ответственный — `employee_name`. Ответ приводит к
+форме CRM `CopilotPrompt::normalizeActions()`; нет `is_client` —
+`provider_bad_response` с расходом.
+
 Модуль по умолчанию отдаёт модели `prompt`; с настройкой «Свои промпты»
 (`API_ownprompts`) — свою инструкцию по коду и маркерам
-(`Completion\CopilotPrompt`) для трёх кодов выше.
+(`Completion\CopilotPrompt`) для четырёх кодов выше.
 
 ### Почему на коробке нужны свои промпты
 

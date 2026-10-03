@@ -11,7 +11,8 @@ use Shef\ToolsAi\Provider\ProviderInterface;
 use Shef\ToolsAi\Provider\Result;
 
 /**
- * Категория text: резюме звонка, заполнение полей, оценка разговора.
+ * Категория text: резюме звонка, заполнение полей, оценка разговора,
+ * дела после разговора.
  *
  * Промпт ядра — Request::getChatMessages(). Резюме звонка и заполнение
  * полей — свои промпты (CopilotPrompt), если они включены настройкой.
@@ -101,6 +102,26 @@ final class ChatProvider implements ProviderInterface
 
 			return new Result(
 				(string)json_encode($scoring, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+				$result->getTokens(),
+				$result->costMicro
+			);
+		}
+
+		// Дела после разговора: CRM разбирает JSON {is_client, reason…, actions}.
+		if($this->getOwnCode($request) === CopilotPrompt::ACTIONS)
+		{
+			$result = $this->llm->completeJsonObject($this->getMessages($request));
+			$employee = is_scalar($request->markers['employee_name'] ?? null) ? (string)$request->markers['employee_name'] : '';
+			$actions = CopilotPrompt::normalizeActions((array)$result->json, $employee);
+			// Без is_client CRM молча считает «не клиент» и без причины
+			// отвергает ответ — оплаченный негодный ответ ошибкой с ценой.
+			if($actions['is_client'] === null)
+			{
+				throw new ProviderException('Модель не ответила, клиент ли это (is_client)', 'provider_bad_response', null, $result->getTokens(), $result->costMicro);
+			}
+
+			return new Result(
+				(string)json_encode($actions, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
 				$result->getTokens(),
 				$result->costMicro
 			);

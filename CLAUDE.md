@@ -269,7 +269,12 @@ text-провайдером «Свои промпты» (`API_ownprompts`,
 есть; поля — JSON-объект с ключами-именами полей из маркера `fields` плюс
 `comment` (иначе `PAYLOAD_IS_EMPTY`); оценка звонка — `call_review.criteria`
 по критериям скрипта, `overall_summary`, `recommendations`
-(`scorecall.php:217-231`), ни одного критерия — `provider_bad_response`.
+(`scorecall.php:217-231`), ни одного критерия — `provider_bad_response`;
+дела после разговора (`client_dialogue_action_extraction`, свой выбор
+движка в настройках ИИ) — `{is_client, reason_if_is_client_false,
+actions}`, до 5 дел, срок `Y-m-d\TH:i:s` (`analyzecommunication.php:47,
+216-266`), нормализация `CopilotPrompt::normalizeActions()`, без
+`is_client` — `provider_bad_response`.
 Прочие коды — промпт ядра как есть.
 
 **Перерегистрация движков — только штатно, два шага — нормально**
