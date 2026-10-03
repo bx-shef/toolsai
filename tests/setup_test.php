@@ -154,6 +154,9 @@ namespace Bitrix\Crm\Integration\AI
 	{
 		public const SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_AUDIO_CODE = 'crm_copilot_fill_item_from_call_engine_audio';
 		public const SETTINGS_FILL_ITEM_FROM_CALL_ENGINE_TEXT_CODE = 'crm_copilot_fill_item_from_call_engine_text';
+		public const SETTINGS_CALL_ASSESSMENT_ENGINE_CODE = 'crm_copilot_call_assessment_engine_code';
+		public const SETTINGS_ANALYZE_COMMUNICATION_ENGINE_CODE = 'crm_copilot_analyze_communication_engine_code';
+		// SETTINGS_REPEAT_SALE_ENGINE_CODE нет: на этой «версии crm» сценария нет
 	}
 
 	class BaasManager
@@ -324,16 +327,16 @@ Check::same('пустой и чужой — оба заменены нашими
 	'crm_copilot_fill_item_from_call_engine_audio' => 'sheftoolsai_audio',
 	'crm_copilot_fill_item_from_call_engine_text' => 'sheftoolsai_text',
 ]);
-Check::same('отчёт говорит, что было', [$report['audio']['message'], $report['text']['message']], ['выбран наш', 'выбран наш (было «ChatGPT»)']);
+Check::same('отчёт говорит, что было', [$report['audio']['message'], $report['text']['message']], ['выбран движок модуля «Shef ToolsAI — распознавание речи» (sheftoolsai_audio)', 'выбран движок модуля «Shef ToolsAI — текст» (sheftoolsai_text) (было «ChatGPT»)']);
 Check::same('сохранено один раз', \Bitrix\AI\Tuning\Manager::$saved, 1);
 Check::same('флажки «выбрал модуль» стоят', [Option::get('shef.toolsai', 'SYS_selected_audio'), Option::get('shef.toolsai', 'SYS_selected_text')], ['Y', 'Y']);
 Check::same('прежние значения запомнены — вернуть при удалении', [Option::get('shef.toolsai', 'SYS_previous_audio'), Option::get('shef.toolsai', 'SYS_previous_text')], ['', 'ChatGPT']);
 
 $report = $setup()->selectEngines();
-Check::same('повторно — уже наш, не сохраняется', [$report['audio']['message'], \Bitrix\AI\Tuning\Manager::$saved], ['выбран наш', 1]);
+Check::same('повторно — уже наш, не сохраняется', [str_starts_with($report['audio']['message'], 'выбран движок модуля'), \Bitrix\AI\Tuning\Manager::$saved], [true, 1]);
 
 $report = $setup()->run($portal.'/www', $root);
-Check::same('и run() теперь видит наш', [$report['selected audio'], $report['selected text']['ok']], [['ok' => true, 'message' => 'выбран наш'], true]);
+Check::same('и run() теперь видит наш', [$report['selected audio'], $report['selected text']['ok']], [['ok' => true, 'message' => 'выбран движок модуля «Shef ToolsAI — распознавание речи» (sheftoolsai_audio)'], true]);
 
 Check::group('выбор по категориям: текст наш, распознавание штатное (bx-shef/toolsai#12)');
 
@@ -356,12 +359,32 @@ Check::same(
 );
 \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_audio'] = 'BitrixAudio';
 \Bitrix\AI\Tuning\Manager::$values['crm_copilot_fill_item_from_call_engine_text'] = 'sheftoolsai_text';
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_call_assessment_engine_code'] = 'BitrixGPT';
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_analyze_communication_engine_code'] = '';
 $report = $setup()->checkEngineSelection();
 Check::same(
-	'текст наш, распознавание штатное — отчёт не FAIL',
-	[$report['text']['ok'], $report['audio']['ok'], str_contains($report['audio']['message'], 'штатный «BitrixAudio»')],
-	[true, true, true]
+	'текст наш, распознавание штатное — отчёт не FAIL и не зовёт заменить штатный',
+	[$report['text'], $report['audio']],
+	[
+		['ok' => true, 'message' => 'выбран движок модуля «Shef ToolsAI — текст» (sheftoolsai_text)'],
+		['ok' => true, 'message' => 'выбран штатный «BitrixAudio» — эту категорию модуль не обслуживает'],
+	]
 );
+Check::same(
+	'другие сценарии CRM — для сведения; нет константы в ядре — нет строки',
+	array_intersect_key($report, array_flip(['call_assessment', 'repeat_sale', 'analyze_communication'])),
+	[
+		'call_assessment' => ['ok' => true, 'info' => true, 'message' => 'оценка звонка по скрипту: «BitrixGPT» — не через модуль'],
+		'analyze_communication' => ['ok' => true, 'info' => true, 'message' => 'автоматические дела и антиспам: движок не выбран'],
+	]
+);
+\Bitrix\AI\Tuning\Manager::$values['crm_copilot_call_assessment_engine_code'] = 'sheftoolsai_text';
+Check::same(
+	'наш text выбран и в другом сценарии — так и сказано',
+	$setup()->checkEngineSelection()['call_assessment']['message'],
+	'оценка звонка по скрипту: выбран движок модуля «Shef ToolsAI — текст» (sheftoolsai_text)'
+);
+unset(\Bitrix\AI\Tuning\Manager::$values['crm_copilot_call_assessment_engine_code'], \Bitrix\AI\Tuning\Manager::$values['crm_copilot_analyze_communication_engine_code']);
 Check::same('мусор вместо категорий — отказ', $setup()->selectEngines(['video'])['*']['ok'], false);
 
 Check::group('выбор — только зарегистрированных движков');

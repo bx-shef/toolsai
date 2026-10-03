@@ -20,6 +20,23 @@ use Shef\ToolsAi\Security\Token;
 final class Setup
 {
 	public const AGENT_NAME = '\\Shef\\ToolsAi\\Agent\\DealHealthAgent::run();';
+
+	/** Названия движков модуля в списках настроек ИИ — по ним их узнаёт администратор. */
+	public const ENGINE_NAMES = [
+		Constants::CATEGORY_AUDIO => 'Shef ToolsAI — распознавание речи',
+		Constants::CATEGORY_TEXT => 'Shef ToolsAI — текст',
+	];
+
+	/**
+	 * Другие сценарии CRM со своим выбором движка: модуль их не выбирает и не
+	 * обслуживает, отчёт только показывает, что там стоит. Константа ядра —
+	 * по имени: набор зависит от версии crm, нет константы — нет сценария.
+	 */
+	public const OTHER_SCENARIOS = [
+		'call_assessment' => ['SETTINGS_CALL_ASSESSMENT_ENGINE_CODE', 'оценка звонка по скрипту'],
+		'repeat_sale' => ['SETTINGS_REPEAT_SALE_ENGINE_CODE', 'повторные продажи'],
+		'analyze_communication' => ['SETTINGS_ANALYZE_COMMUNICATION_ENGINE_CODE', 'автоматические дела и антиспам'],
+	];
 	public const AGENT_INTERVAL = 86400;
 
 	/** Флажок «выбор движка в настройках ИИ сделал модуль» — повторён в install/index.php. */
@@ -254,10 +271,7 @@ final class Setup
 			];
 		}
 
-		$names = [
-			Constants::CATEGORY_AUDIO => 'Shef ToolsAI — распознавание речи',
-			Constants::CATEGORY_TEXT => 'Shef ToolsAI — текст',
-		];
+		$names = static::ENGINE_NAMES;
 
 		// Оба в одном прогоне: третьесторонний audio-движок виден CRM,
 		// только пока есть хоть один text-движок (ThirdParty::hasQuality(),
@@ -427,7 +441,7 @@ final class Setup
 	/**
 	 * Выбран ли наш движок — для отчёта. Ничего не пишет.
 	 *
-	 * @return array<string, array{ok: bool, message: string}>
+	 * @return array<string, array{ok: bool, message: string, info?: bool}>
 	 */
 	public function checkEngineSelection(): array
 	{
@@ -440,7 +454,8 @@ final class Setup
 		$selection = $this->getEngineSelection();
 		// Хотя бы одна категория на движке модуля — вторая может быть штатной
 		// намеренно (текст модуля, распознавание BitrixAudio,
-		// bx-shef/toolsai#12): это не сбой.
+		// bx-shef/toolsai#12): это не сбой, и совет «Выбрать движок модуля»
+		// тут вреден — заменит рабочий штатный движок.
 		$anyOwn = array_filter(
 			$selection,
 			static fn(?string $value, string $category): bool => $value === Constants::getEngineCode($category),
@@ -452,14 +467,28 @@ final class Setup
 			$report[$category] = match(true)
 			{
 				$value === null => ['ok' => false, 'message' => 'настройка не найдена: группа настроек Копилота не загрузилась'],
-				$value === $own => ['ok' => true, 'message' => 'выбран наш'],
-				$anyOwn && $value !== '' => ['ok' => true, 'message' => 'штатный «'.$value.'» — модулем не выбран (выбрать: «Выбрать движок модуля»)'],
+				$value === $own => ['ok' => true, 'message' => 'выбран '.static::describeOwn($category)],
+				$anyOwn && $value !== '' => ['ok' => true, 'message' => 'выбран штатный «'.$value.'» — эту категорию модуль не обслуживает'],
 				default => [
 					'ok' => false,
 					'message' => ($value === '' ? 'не выбран' : 'выбран «'.$value.'»')
 						.' — нажмите «Выбрать движок модуля» на странице настроек модуля',
 				],
 			};
+		}
+
+		foreach($this->getOtherSelection() as $key => [$label, $value])
+		{
+			$report[$key] = [
+				'ok' => true,
+				'info' => true,
+				'message' => $label.': '.match(true)
+				{
+					$value === '' => 'движок не выбран',
+					$value === Constants::getEngineCode(Constants::CATEGORY_TEXT) => 'выбран '.static::describeOwn(Constants::CATEGORY_TEXT),
+					default => '«'.$value.'» — не через модуль',
+				},
+			];
 		}
 
 		return $report;
@@ -546,7 +575,7 @@ final class Setup
 
 			if($before === $own)
 			{
-				$report[$category] = ['ok' => true, 'message' => 'выбран наш'];
+				$report[$category] = ['ok' => true, 'message' => 'выбран '.static::describeOwn($category)];
 				continue;
 			}
 
@@ -554,7 +583,7 @@ final class Setup
 			Option::set(Constants::MODULE_ID, static::OPTION_PREVIOUS_PREFIX.$category, $before);
 			Option::set(Constants::MODULE_ID, static::OPTION_SELECTED_PREFIX.$category, 'Y');
 			$changed = true;
-			$report[$category] = ['ok' => true, 'message' => $before === '' ? 'выбран наш' : 'выбран наш (было «'.$before.'»)'];
+			$report[$category] = ['ok' => true, 'message' => 'выбран '.static::describeOwn($category).($before === '' ? '' : ' (было «'.$before.'»)')];
 		}
 
 		if($changed)
@@ -576,6 +605,40 @@ final class Setup
 	/**
 	 * @return array<string, string> категория => код настройки ИИ
 	 */
+	/** «движок модуля «Shef ToolsAI — текст» (sheftoolsai_text)» — для отчётов. */
+	public static function describeOwn(string $category): string
+	{
+		return 'движок модуля «'.(static::ENGINE_NAMES[$category] ?? $category).'» ('.Constants::getEngineCode($category).')';
+	}
+
+	/**
+	 * Что выбрано в других сценариях CRM — только чтение.
+	 *
+	 * @return array<string, array{0: string, 1: string}> ключ => [подпись, код движка]
+	 */
+	public function getOtherSelection(): array
+	{
+		if(!static::canSelect())
+		{
+			return [];
+		}
+
+		$result = [];
+		foreach(static::OTHER_SCENARIOS as $key => [$constant, $label])
+		{
+			$name = \Bitrix\Crm\Integration\AI\EventHandler::class.'::'.$constant;
+			$item = defined($name) ? (new \Bitrix\AI\Tuning\Manager())->getItem((string)constant($name)) : null;
+			if($item === null)
+			{
+				continue;
+			}
+			$raw = $item->getValue();
+			$result[$key] = [$label, is_scalar($raw) ? (string)$raw : ''];
+		}
+
+		return $result;
+	}
+
 	private static function getSelectionSettings(): array
 	{
 		return [

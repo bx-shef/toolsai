@@ -185,7 +185,7 @@ HTTP-статус, текст из таймлайна.
    администратором). Ожидается: после редиректа «Готово: выбраны движки
    модуля», в строке — оба кода `sheftoolsai_*`, в
    `/configs/?page=ai` — наши движки; повторный `configure.php` —
-   `selected audio/text` «выбран наш». Проверь и отказ: ссылка без
+   `selected audio/text` «выбран движок модуля …». Проверь и отказ: ссылка без
    `sessid` и под пользователем без прав администратора ничего не меняет.
 3. `SELECT ID, CODE, CATEGORY, COMPLETIONS_URL FROM b_ai_engine WHERE CODE
    LIKE 'sheftoolsai%';` — две строки, адрес с `?token=` (в отчёт — маской).
