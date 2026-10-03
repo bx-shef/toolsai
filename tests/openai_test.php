@@ -677,4 +677,82 @@ $transport->responses = [$answer('{"a": [1, 2'), $answer('{"a": [1, 2')];
 $chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
 Check::same('оценка: не чинится — в ошибке тип ошибки разбора', str_contains((string)$errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->getMessage(), 'разбор: '), true);
 
+Check::group('свой промпт: дела после разговора (client_dialogue_action_extraction)');
+
+$actionsMarkers = [
+	'dialogue' => 'Менеджер: Добрый день, магазин. Клиент: Пришлите счёт на два сапуна, завтра оплатим.',
+	'employee_name' => 'Иван Петров',
+	'dialogue_start_datetime' => '03.10.2026 14:30:00',
+	'language' => 'Русский',
+];
+Check::same('дела: код распознан', CopilotPrompt::getCode($copilot('client_dialogue_action_extraction', $actionsMarkers)), 'client_dialogue_action_extraction');
+Check::same('дела: без текста разговора — промпт ядра', CopilotPrompt::getCode($copilot('client_dialogue_action_extraction', ['dialogue' => ' '])), null);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer((string)json_encode([
+	'is_client' => true,
+	'reason_if_is_client_false' => 'лишнее',
+	'actions' => [
+		['title' => 'Отправить счёт', 'description' => 'Два сапуна', 'deadline' => '2026-10-03T18:00:00', 'лишнее' => 1],
+		['title' => ' ', 'description' => ''],
+		'мусор',
+		['title' => str_repeat('я', 300), 'responsible_person' => 'Пётр', 'deadline' => 'завтра'],
+	],
+], JSON_UNESCAPED_UNICODE))];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = json_decode($chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, true);
+$sent = json_decode($transport->sent[0]['body'], true);
+Check::same('дела: ответ приведён к форме CRM — пустые и мусор выброшены, длина обрезана, срок не по формату — null, ответственный по умолчанию', $result, [
+	'is_client' => true,
+	'reason_if_is_client_false' => null,
+	'actions' => [
+		['title' => 'Отправить счёт', 'description' => 'Два сапуна', 'responsible_person' => 'Иван Петров', 'deadline' => '2026-10-03T18:00:00'],
+		['title' => str_repeat('я', 255), 'description' => '', 'responsible_person' => 'Пётр', 'deadline' => null],
+	],
+]);
+$system = $sent['messages'][0]['content'];
+Check::same(
+	'дела: json_object, разговор — сообщением пользователя, в инструкции формат, RFC 8259, «ёлочки», срок, язык, справка',
+	[$sent['response_format'] ?? null, $sent['messages'][1]['content'], str_contains($system, 'RFC 8259'), str_contains($system, 'в «ёлочки»'), str_contains($system, 'ГГГГ-ММ-ДДTчч:мм:сс'), str_contains($system, 'на языке: Русский'), str_contains($system, '"03.10.2026 14:30:00"'), str_contains($system, '"Иван Петров"'), str_contains($system, 'не больше 5 дел')],
+	[['type' => 'json_object'], $actionsMarkers['dialogue'], true, true, true, true, true, true, true]
+);
+preg_match_all('/^Пример правильного ответа[^\n]*:\n(\{.*\})$/mu', $system, $examples);
+Check::same('дела: в инструкции два примера', count($examples[1]), 2);
+$parsed = array_map(static fn(string $e) => json_decode($e, true), $examples[1]);
+Check::same('дела: примеры — валидный JSON, ровно три ключа', array_map(static fn($e) => array_keys((array)$e), $parsed), [['is_client', 'reason_if_is_client_false', 'actions'], ['is_client', 'reason_if_is_client_false', 'actions']]);
+Check::same('дела: примеры не меняются нормализацией (форма CRM)', array_map(static fn($e) => CopilotPrompt::normalizeActions((array)$e) === $e, $parsed), [true, true]);
+
+Check::same(
+	'normalizeActions: не клиент — дел нет, причина на месте',
+	CopilotPrompt::normalizeActions(['is_client' => false, 'reason_if_is_client_false' => 'Спам', 'actions' => [['title' => 'А']]]),
+	['is_client' => false, 'reason_if_is_client_false' => 'Спам', 'actions' => []]
+);
+Check::same('normalizeActions: не клиент без причины — заглушка', CopilotPrompt::normalizeActions(['is_client' => false])['reason_if_is_client_false'], CopilotPrompt::NOT_CLIENT_REASON);
+Check::same('normalizeActions: is_client строкой "false" — false', CopilotPrompt::normalizeActions(['is_client' => 'false'])['is_client'], false);
+Check::same('normalizeActions: is_client не bool — null', [CopilotPrompt::normalizeActions(['is_client' => 1])['is_client'], CopilotPrompt::normalizeActions([])['is_client']], [null, null]);
+Check::same('normalizeActions: не больше 5 дел', count(CopilotPrompt::normalizeActions(['is_client' => true, 'actions' => array_fill(0, 8, ['title' => 'А'])])['actions']), 5);
+Check::same('normalizeActions: клиент без дел — допустимо', CopilotPrompt::normalizeActions(['is_client' => true, 'actions' => null]), ['is_client' => true, 'reason_if_is_client_false' => null, 'actions' => []]);
+Check::same(
+	'getDeadline: форматы parseDeadline CRM — да, прочее — null',
+	array_map([CopilotPrompt::class, 'getDeadline'], ['2026-10-06T12:00:00', '2026-10-06T12:00:00+03:00', '2026-10-06T12:00:00Z', '2026-10-06 12:00:00', '2026-10-06', '06.10.2026', '2026-02-30', '2026-10-06T25:00:00', '2026-10-06 12:00:00+03:00', 20261006, null]),
+	['2026-10-06T12:00:00', '2026-10-06T12:00:00+03:00', '2026-10-06T12:00:00Z', '2026-10-06 12:00:00', '2026-10-06', null, null, null, null, null, null]
+);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"actions": []}')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$error = $errorOf(static fn() => $chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers)));
+Check::same('дела: нет is_client — provider_bad_response с расходом', [$error?->errorCode, $error?->spentUnits, $error?->spentMicro > 0], ['provider_bad_response', 1100, true]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer("{\"is_client\": false, \"reason_if_is_client_false\": \"Сказал \"ошибся номером\"\nи положил трубку\", \"actions\": []}")];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = json_decode($chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, true);
+Check::same('дела: прямые кавычки и перенос строки в причине — починено с первой попытки', [count($transport->sent), $result], [1, ['is_client' => false, 'reason_if_is_client_false' => "Сказал \"ошибся номером\"\nи положил трубку", 'actions' => []]]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"x":1}')];
+$chat = new ChatProvider($config($options), new Llm($config($options), new Client($config($options), $transport)));
+Check::same('дела: свои промпты выключены — ответ как есть', $chat->run($copilot('client_dialogue_action_extraction', $actionsMarkers))->text, '{"x":1}');
+
 Check::finish();
