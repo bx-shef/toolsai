@@ -26,7 +26,8 @@ namespace Shef\ToolsAi\Completion;
  *   {"call_review": {"criteria": [{criterion, status, explanation}]},
  *   "overall_summary", "recommendations"} (ScoreCall::
  *   extractPayloadFromAIResult, Dto\Scoring\ScoringCriteria); без критериев
- *   и рекомендаций — невалидный payload.
+ *   и рекомендаций — невалидный payload. Модель отвечает плоско, criteria в
+ *   корне, — вложенную форму собирает normalizeScoring().
  *
  * Остальные коды — как раньше, текст промпта ядра как есть. Включается
  * настройкой «Свои промпты» (Config::isOwnPromptsEnabled()): ядро присылает
@@ -181,25 +182,24 @@ final class CopilotPrompt
 			'',
 			'ФОРМАТ ОТВЕТА — строго соблюдай, ответ разбирает программа, а не человек.',
 			'Ответ — ровно один JSON-объект по стандарту RFC 8259 и больше ничего: без текста до и после, без Markdown, без ```, без комментариев.',
-			'Структура (типы — в угловых скобках):',
+			'Структура (типы — в угловых скобках), три ключа верхнего уровня:',
 			'{',
-			'  "call_review": {',
-			'    "criteria": [',
-			'      {"criterion": <строка>, "status": <true | false | null>, "explanation": <строка>}',
-			'    ]',
-			'  },',
+			'  "criteria": [',
+			'    {"criterion": <строка>, "status": <true | false | null>, "explanation": <строка>}',
+			'  ],',
 			'  "overall_summary": <строка>,',
 			'  "recommendations": <строка>',
 			'}',
 			'',
 			'Пример правильного ответа на два критерия:',
-			'{"call_review": {"criteria": [{"criterion": "Поздороваться и представиться", "status": true, "explanation": "Менеджер начал со слов «Добрый день, магазин, Артур»."}, {"criterion": "Выяснить бюджет", "status": null, "explanation": "Клиент обращался по ремонту, вопрос о бюджете неуместен."}]}, "overall_summary": "Звонок короткий, клиент получил контакт сервиса.", "recommendations": "Спрашивать имя клиента и обращаться по имени."}',
+			'{"criteria": [{"criterion": "Поздороваться и представиться", "status": true, "explanation": "Менеджер начал со слов «Добрый день, магазин, Артур»."}, {"criterion": "Выяснить бюджет", "status": null, "explanation": "Клиент обращался по ремонту, вопрос о бюджете неуместен."}], "overall_summary": "Звонок короткий, клиент получил контакт сервиса.", "recommendations": "Спрашивать имя клиента и обращаться по имени."}',
 			'',
 			'Правила JSON:',
 			'- ключи и строки — в двойных кавычках "; true, false, null — без кавычек;',
 			'- внутри строк НЕ используй символ " — цитаты из разговора бери в «ёлочки»;',
 			'- внутри строк не делай переносов строк и табов — всё в одну строку;',
 			'- без запятой после последнего элемента массива или объекта;',
+			'- каждая «{» и «[» закрыта: массив "criteria" закрывается «]» перед "overall_summary";',
 			'- ровно эти ключи, без лишних и без пропусков.',
 			'',
 			'Правила оценки:',
@@ -230,11 +230,17 @@ final class CopilotPrompt
 	 * call_review.criteria (criterion/status/explanation), overall_summary,
 	 * recommendations. Элементы без текста критерия CRM всё равно отбросит
 	 * валидатором (ScoringCriteria: criterion не пустой) — убираем сразу.
+	 *
+	 * Модель просим о плоской форме (criteria в корне), а вложенную CRM
+	 * собираем здесь: на вложенной DeepSeek забывал закрыть call_review, и
+	 * итог с рекомендациями уезжал внутрь него (боевой портал, #11). Поэтому
+	 * принимаем обе формы, а итог ищем и в корне, и внутри call_review.
 	 */
 	public static function normalizeScoring(array $json): array
 	{
+		$review = is_array($json['call_review'] ?? null) ? $json['call_review'] : [];
 		$criteria = [];
-		foreach((array)($json['call_review']['criteria'] ?? []) as $item)
+		foreach((array)($json['criteria'] ?? $review['criteria'] ?? []) as $item)
 		{
 			if(!is_array($item))
 			{
@@ -257,8 +263,8 @@ final class CopilotPrompt
 
 		return [
 			'call_review' => ['criteria' => $criteria],
-			'overall_summary' => static::getText($json['overall_summary'] ?? null),
-			'recommendations' => static::getText($json['recommendations'] ?? null),
+			'overall_summary' => static::getText($json['overall_summary'] ?? $review['overall_summary'] ?? null),
+			'recommendations' => static::getText($json['recommendations'] ?? $review['recommendations'] ?? null),
 		];
 	}
 

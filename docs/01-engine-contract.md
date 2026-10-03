@@ -82,6 +82,11 @@
 строки, `crm/lib/integration/ai/operation/scorecall.php:116-119`). Ответ CRM
 ищет JSON `{"call_review": {"criteria": [{criterion, status, explanation}]},
 "overall_summary", "recommendations"}` (`ScoreCall::extractPayloadFromAIResult`).
+Модель модуль просит о плоской форме — `criteria` в корне рядом с итогом, — а
+вложенную собирает сам (`CopilotPrompt::normalizeScoring()`): на вложенной
+DeepSeek забывал закрыть `call_review` (боевой портал, #11: «{» 28, «}» 27).
+Обе формы принимаются; незакрытые скобки в конце необрезанного ответа
+дописывает `Llm::repairJson()`.
 
 Модуль по умолчанию отдаёт модели `prompt`; с настройкой «Свои промпты»
 (`API_ownprompts`) — свою инструкцию по коду и маркерам

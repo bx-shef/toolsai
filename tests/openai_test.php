@@ -522,11 +522,11 @@ Check::same('оценка: ответ приведён к форме CRM, мус
 	'recommendations' => 'Предложить визит в магазин.',
 ]);
 Check::same(
-	'оценка: json_object, критерии списком без пустых строк, транскрипт — сообщением пользователя, текст ядра не уходит',
+	'оценка: json_object, критерии списком без пустых строк, у модели просим плоскую форму, транскрипт — сообщением пользователя, текст ядра не уходит',
 	[
 		$sent['response_format'] ?? null,
 		str_contains($sent['messages'][0]['content'], '["Поздоровался и представился","Выяснил потребность","Предложил следующий шаг"]'),
-		str_contains($sent['messages'][0]['content'], '"call_review"'),
+		str_contains($sent['messages'][0]['content'], '"criteria": [') && !str_contains($sent['messages'][0]['content'], '"call_review"'),
 		str_contains($sent['messages'][0]['content'], 'Иван Петров'),
 		$sent['messages'][1],
 		str_contains((string)$transport->sent[0]['body'], '1568'),
@@ -620,7 +620,57 @@ Check::same(
 	[str_contains($system, 'RFC 8259'), str_contains($system, 'Пример правильного ответа'), str_contains($system, 'в «ёлочки»'), str_contains($system, 'без переносов строк') || str_contains($system, 'не делай переносов строк'), str_contains($system, 'ровно 3 элементов')],
 	[true, true, true, true, true]
 );
-Check::same('оценка: пример в инструкции — валидный JSON формы CRM', is_array(json_decode((string)preg_replace('/^.*Пример правильного ответа на два критерия:\n(\{.*?\})\n.*$/su', '$1', $system), true)['call_review']['criteria'] ?? null), true);
+$example = json_decode((string)preg_replace('/^.*Пример правильного ответа на два критерия:\n(\{.*?\})\n.*$/su', '$1', $system), true);
+Check::same('оценка: пример в инструкции — валидный JSON плоской формы, ровно три ключа', array_keys((array)$example), ['criteria', 'overall_summary', 'recommendations']);
+Check::same('оценка: пример в инструкции после разбора — два критерия формы CRM', count(CopilotPrompt::normalizeScoring((array)$example)['call_review']['criteria']), 2);
+
+Check::group('оценка: плоская форма и незакрытая скобка (#11: «{» 28, «}» 27, stop)');
+
+Check::same(
+	'normalizeScoring: плоская форма — criteria в корне — собирается во вложенную форму CRM',
+	CopilotPrompt::normalizeScoring(['criteria' => [['criterion' => 'А', 'status' => false, 'explanation' => 'нет']], 'overall_summary' => 'итог', 'recommendations' => 'совет']),
+	['call_review' => ['criteria' => [['criterion' => 'А', 'status' => false, 'explanation' => 'нет']]], 'overall_summary' => 'итог', 'recommendations' => 'совет']
+);
+Check::same(
+	'normalizeScoring: итог и рекомендации внутри call_review — достаются оттуда',
+	CopilotPrompt::normalizeScoring(['call_review' => ['criteria' => [['criterion' => 'А', 'status' => true, 'explanation' => 'да']], 'overall_summary' => 'итог', 'recommendations' => 'совет']]),
+	['call_review' => ['criteria' => [['criterion' => 'А', 'status' => true, 'explanation' => 'да']]], 'overall_summary' => 'итог', 'recommendations' => 'совет']
+);
+Check::same('normalizeScoring: в корне и в call_review — корень главнее', CopilotPrompt::normalizeScoring(['criteria' => [['criterion' => 'корень']], 'call_review' => ['criteria' => [['criterion' => 'вложенный']]], 'overall_summary' => 'корень', 'recommendations' => ''])['call_review']['criteria'][0]['criterion'], 'корень');
+
+Check::same('repairJson: незакрытая скобка в конце дописывается', json_decode(Llm::repairJson('{"a": {"b": [1], "c": "x"}'), true), ['a' => ['b' => [1], 'c' => 'x']]);
+Check::same('repairJson: незакрытые «[» и «{» — в обратном порядке', Llm::repairJson('{"a": [{"b": 1}'), '{"a": [{"b": 1}]}');
+Check::same('repairJson: скобки внутри строк не считаются', Llm::repairJson('{"a": "скобка { и [ внутри"}'), '{"a": "скобка { и [ внутри"}');
+Check::same('repairJson: строка оборвана — скобки не дописываются', Llm::repairJson('{"a": "оборвано'), '{"a": "оборвано');
+Check::same('describeBrackets: считает вне строк', Llm::describeBrackets('{"a": "{[", "b": [{}]'), 'скобки { 2/1, [ 1/1');
+
+// Скелет боевого ответа: вложенная форма, call_review не закрыт, итог внутри.
+$unclosed = '{"call_review": {"criteria": [{"criterion": "Поздоровался и представился", "status": true, "explanation": "Сказал «Добрый день»."}, {"criterion": "Выяснил потребность", "status": null, "explanation": "Не спросил."}], "overall_summary": "Звонок короткий." , "recommendations": "Спросить имя."}';
+Check::same('оценка: исходный ответ правда не разбирается (иначе тест ниже ничего не держит)', json_decode($unclosed), null);
+$transport = new FakeTransport();
+$transport->responses = [$answer($unclosed)];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$result = $chat->run($copilot('call_scoring', $scoringMarkers));
+Check::same(
+	'оценка: незакрытый call_review (боевой случай) — починен с первой попытки, итог и рекомендации на месте',
+	[count($transport->sent), count(json_decode($result->text, true)['call_review']['criteria'] ?? []), json_decode($result->text, true)['overall_summary'] ?? null, json_decode($result->text, true)['recommendations'] ?? null],
+	[1, 2, 'Звонок короткий.', 'Спросить имя.']
+);
+
+$transport = new FakeTransport();
+$short = new Response(200, (string)json_encode([
+	'choices' => [['message' => ['content' => '{"criteria": [{"criterion": "Поздоровался", "status": true, "explanation": "да"}'], 'finish_reason' => 'length']],
+	'usage' => ['prompt_tokens' => 1000, 'completion_tokens' => 100],
+]));
+$transport->responses = [$short, $short];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+$error = $errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)));
+Check::same('оценка: обрезанный ответ (length) скобками не чинится — повтор и ошибка', [$error?->errorCode, count($transport->sent)], ['provider_bad_response', 2]);
+
+$transport = new FakeTransport();
+$transport->responses = [$answer('{"a": "x", "b"}'), $answer('{"a": "x", "b"}')];
+$chat = new ChatProvider($config($own), new Llm($config($own), new Client($config($own), $transport)));
+Check::same('оценка: не чинится — в ошибке подсчёт скобок, без текста ответа', str_contains((string)$errorOf(static fn() => $chat->run($copilot('call_scoring', $scoringMarkers)))?->getMessage(), 'скобки { 1/1, [ 0/0)'), true);
 
 $transport = new FakeTransport();
 $transport->responses = [$answer('{"a": [1, 2'), $answer('{"a": [1, 2')];
