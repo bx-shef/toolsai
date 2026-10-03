@@ -211,6 +211,7 @@ if($request->getQuery('saved') === 'Y' || $request->getQuery('deleted') === 'Y')
 					<?php foreach($clientTypeNames as $type => $name): ?>
 						<label><input type="checkbox" name="CLIENT_TYPES[]" value="<?=(int)$type?>"<?=in_array($type, $editing->clientTypes, true) ? ' checked' : ''?>> <?=$h($name)?></label><br>
 					<?php endforeach; ?>
+					<p style="color:#777;max-width:600px"><?=nl2br($h(Loc::getMessage('SH_TOOLSAI_PROFILES_CLIENT_HELP')))?></p>
 				</td>
 			</tr>
 			<tr>

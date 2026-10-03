@@ -8,7 +8,12 @@ $MESS['SH_TOOLSAI_PROFILES_F_IS_ENABLED'] = 'Включён';
 $MESS['SH_TOOLSAI_PROFILES_F_SORT'] = 'Сортировка';
 $MESS['SH_TOOLSAI_PROFILES_F_CATEGORY_ID'] = 'Направление';
 $MESS['SH_TOOLSAI_PROFILES_F_CLIENT_TYPES'] = 'Тип клиента';
-$MESS['SH_TOOLSAI_PROFILES_F_CLIENT_TYPES_DESCR'] = 'Не выбрано ни одного — любой клиент.';
+$MESS['SH_TOOLSAI_PROFILES_F_CLIENT_TYPES_DESCR'] = 'Не отмечено ни одного — любой клиент, в том числе сделки, где тип не определился.';
+$MESS['SH_TOOLSAI_PROFILES_CLIENT_HELP'] = 'Как считается тип. Берётся компания сделки, нет компании — контакт. Нет ни того ни другого — тип не определён, и сделке подходят только профили без отмеченных типов.
+• Вернувшийся покупатель — у клиента есть хотя бы одна успешная сделка.
+• Повторное обращение — успешных сделок нет, но есть проваленная.
+• Новый — клиент создан меньше часа назад. В CRM с лидами контакт и компания новыми не бывают вовсе, а сделку анализируют через дни после создания — для анализа сделок почти не встречается.
+• В работе — все остальные.';
 $MESS['SH_TOOLSAI_PROFILES_F_IDLE_DAYS'] = 'Сделка зависла, если дел не было, дней';
 $MESS['SH_TOOLSAI_PROFILES_F_REANALYZE_DAYS'] = 'Повторный анализ и повторные дела не чаще, дней';
 $MESS['SH_TOOLSAI_PROFILES_F_LOW_BORDER'] = 'Нижняя граница риска, 0-100';
@@ -22,7 +27,7 @@ $MESS['SH_TOOLSAI_PROFILES_F_PROMPT_DESCR'] = 'Свой системный пр�
 $MESS['SH_TOOLSAI_PROFILES_COL_SCALE'] = 'Шкала';
 $MESS['SH_TOOLSAI_PROFILES_SCALE'] = 'менеджер от #LOW#%, старший от #HIGH#%; зависла через #IDLE# дн.; повтор через #REANALYZE# дн.';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_ANY'] = 'любой';
-$MESS['SH_TOOLSAI_PROFILES_CLIENT_1'] = 'Новый';
+$MESS['SH_TOOLSAI_PROFILES_CLIENT_1'] = 'Новый (для сделок почти не встречается)';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_2'] = 'В работе';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_3'] = 'Повторное обращение';
 $MESS['SH_TOOLSAI_PROFILES_CLIENT_4'] = 'Вернувшийся покупатель';

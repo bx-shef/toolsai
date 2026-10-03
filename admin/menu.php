@@ -68,5 +68,10 @@ return [
 			'url' => Constants::DEAL_PROFILES_FILE.'?lang='.LANGUAGE_ID,
 			'more_url' => [Constants::DEAL_PROFILES_FILE],
 		],
+		[
+			'text' => (string)Loc::getMessage('SH_TOOLSAI_MENU_STATS'),
+			'url' => Constants::STATS_FILE.'?lang='.LANGUAGE_ID,
+			'more_url' => [Constants::STATS_FILE],
+		],
 	],
 ];

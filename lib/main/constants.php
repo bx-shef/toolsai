@@ -31,6 +31,9 @@ class Constants
 
 	public const DEAL_PROFILES_FILE = '/bitrix/admin/shef_toolsai_deal_profiles.php';
 	public const DEAL_PROFILES_MODULE_PAGE = '/admin/dealprofiles.php';
+
+	public const STATS_FILE = '/bitrix/admin/shef_toolsai_stats.php';
+	public const STATS_MODULE_PAGE = '/admin/stats.php';
 	// endregion ////
 
 	/**

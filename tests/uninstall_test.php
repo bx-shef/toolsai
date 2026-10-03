@@ -317,7 +317,7 @@ $report = (new ReflectionProperty($module, 'setupReport'))->getValue($module);
 Check::same(
 	'установка не включает модуль: только токен и заглушки — без обхода BaaS, движков и агента',
 	[array_keys($report), \Bitrix\Crm\Integration\AI\BaasManager::$ignored, Option::get('shef.toolsai', 'SYS_baasset')],
-	[['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE, 'page '.Constants::DEAL_PROFILES_FILE], false, '']
+	[['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE, 'page '.Constants::DEAL_PROFILES_FILE, 'page '.Constants::STATS_FILE], false, '']
 );
 Check::same('токен сгенерирован', 1 === preg_match('/^[a-f0-9]{64}$/', (string)Option::get('shef.toolsai', 'SYS_token')), true);
 
