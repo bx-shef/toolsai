@@ -207,6 +207,42 @@ class Config
 		return $model !== '' ? $model : static::DEFAULT_LLM_MODEL;
 	}
 
+	/** Поля, которые дополнительные параметры не перекрывают: их задаёт модуль. */
+	public const LLM_PROTECTED_KEYS = ['model', 'messages', 'response_format', 'stream', 'n'];
+
+	/**
+	 * Дополнительные параметры /chat/completions — JSON-объект из настроек:
+	 * выключить рассуждения ({"thinking":{"type":"disabled"}}), задать
+	 * reasoning_effort, temperature. Провайдеры называют это по-разному,
+	 * поэтому — как есть, без знания модуля (bx-shef/toolsai#12). Не JSON-
+	 * объект — пусто; модель, сообщения и формат ответа задаёт модуль.
+	 */
+	public function getLlmExtra(): array
+	{
+		$raw = trim((string)$this->get('API_llmextra'));
+		if($raw === '')
+		{
+			return [];
+		}
+
+		$data = json_decode($raw, true);
+		if(!is_array($data) || ($data !== [] && array_is_list($data)))
+		{
+			return [];
+		}
+
+		return array_diff_key($data, array_flip(static::LLM_PROTECTED_KEYS));
+	}
+
+	/** Дополнительные параметры заданы, но не разобрались (не JSON-объект). */
+	public function isLlmExtraBroken(): bool
+	{
+		$raw = trim((string)$this->get('API_llmextra'));
+		$data = $raw === '' ? [] : json_decode($raw, true);
+
+		return !is_array($data) || ($data !== [] && array_is_list($data));
+	}
+
 	/** Цена минуты распознавания, микро-единицы. */
 	public function getAsrPricePerMinuteMicro(): int
 	{

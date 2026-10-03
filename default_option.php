@@ -13,6 +13,7 @@ $shef_toolsai_default_option = [
 	'API_baseurl' => 'https://api.openai.com/v1',
 	'API_asrmodel' => 'whisper-1',
 	'API_llmmodel' => 'gpt-4o-mini',
+	'API_llmextra' => '',
 	'API_timeout' => '120',
 	'DEAL_enabled' => 'N',
 	'DEAL_threshold' => '70',

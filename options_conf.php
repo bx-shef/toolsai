@@ -181,6 +181,11 @@ $options->addTab(
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmmodel'))
 		)
 		->addOption(
+			(new Options\Text('llmextra'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_llmextra'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_llmextra_descr'))
+		)
+		->addOption(
 			(new Options\Text('asrprice'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_API_asrprice'))
 				->setDescription(Loc::getMessage($options->moduleId.'_TAB_API_price_descr'))
