@@ -11,6 +11,20 @@ namespace Shef\ToolsAi\Deal;
  * отдаёт enum \Bitrix\Crm\Client\ClientType. Перевод в коды — ровно как
  * AssessmentClientTypeResolver::resolveByIdentifier(); здесь по имени
  * варианта, чтобы перевод проверялся тестом без ядра.
+ *
+ * Как ядро решает (crm/lib/Client/ClientTypeResolver.php), простыми словами.
+ * Клиент сделки — её компания, нет компании — контакт (pickClient());
+ * нет обоих — тип не определён (null), и подходят только профили «любой».
+ *
+ * * Вернувшийся (WithSale) — у клиента есть хотя бы одна сделка в успешной
+ *   стадии (в том числе, если выиграна сама эта сделка).
+ * * Повторное обращение (PreviouslyContacted) — успешных нет, есть
+ *   проваленная.
+ * * Новый (New) — клиент создан меньше часа назад. Но в классическом режиме
+ *   CRM (с лидами) контакт и компания новыми не бывают: ядро сразу считает
+ *   их «в работе». А анализ сделки идёт через дни после создания — для нас
+ *   «новый» почти не встречается.
+ * * В работе (Existing) — всё остальное.
  */
 final class ClientType
 {
@@ -18,6 +32,26 @@ final class ClientType
 	public const IN_WORK = 2;
 	public const REPEATED_APPROACH = 3;
 	public const RETURN_CUSTOMER = 4;
+
+	public const CLIENT_COMPANY = 'company';
+	public const CLIENT_CONTACT = 'contact';
+
+	/**
+	 * По кому считать тип: компания сделки главнее контакта (решение
+	 * владельца, 1.2.0) — сделка с компанией и контактом оценивается по
+	 * истории компании. Нет обоих — null, тип не определён.
+	 *
+	 * @return array{0: string, 1: int}|null
+	 */
+	public static function pickClient(int $companyId, int $contactId): ?array
+	{
+		return match(true)
+		{
+			$companyId > 0 => [static::CLIENT_COMPANY, $companyId],
+			$contactId > 0 => [static::CLIENT_CONTACT, $contactId],
+			default => null,
+		};
+	}
 
 	/** @return int[] */
 	public static function getAll(): array

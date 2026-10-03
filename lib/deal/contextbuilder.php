@@ -143,8 +143,9 @@ final class ContextBuilder implements FactsSourceInterface
 	}
 
 	/**
-	 * Тип клиента сделки — штатно: ClientTypeResolver ядра по контакту, нет
-	 * контакта — по компании. Перевод в коды — как у речевой аналитики
+	 * Тип клиента сделки — штатно: ClientTypeResolver ядра по компании, нет
+	 * компании — по контакту (решение владельца, 1.2.0; выбор —
+	 * ClientType::pickClient()). Перевод в коды — как у речевой аналитики
 	 * (AssessmentClientTypeResolver::resolveByIdentifier()), см. ClientType.
 	 * Сбой или нет клиента — null: подойдёт только профиль «любой».
 	 */
@@ -155,12 +156,11 @@ final class ContextBuilder implements FactsSourceInterface
 			return null;
 		}
 
-		$contactId = (int)$item->getContactId();
-		$companyId = (int)$item->getCompanyId();
-		$identifier = match(true)
+		$client = ClientType::pickClient((int)$item->getCompanyId(), (int)$item->getContactId());
+		$identifier = match($client[0] ?? null)
 		{
-			$contactId > 0 => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Contact, $contactId),
-			$companyId > 0 => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Company, $companyId),
+			ClientType::CLIENT_COMPANY => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Company, $client[1]),
+			ClientType::CLIENT_CONTACT => new \Bitrix\Crm\ItemIdentifier(\CCrmOwnerType::Contact, $client[1]),
 			default => null,
 		};
 		if($identifier === null)

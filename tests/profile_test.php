@@ -38,6 +38,10 @@ use Shef\ToolsAi\Deal\Verdict;
 
 Check::group('тип клиента');
 
+Check::same('по кому: компания главнее контакта', ClientType::pickClient(5, 7), [ClientType::CLIENT_COMPANY, 5]);
+Check::same('по кому: нет компании — контакт', ClientType::pickClient(0, 7), [ClientType::CLIENT_CONTACT, 7]);
+Check::same('по кому: нет обоих — не определён', ClientType::pickClient(0, 0), null);
+
 Check::same('коды как у речевой аналитики', ClientType::getAll(), [1, 2, 3, 4]);
 Check::same('New -> NEW', ClientType::fromCoreName('New'), ClientType::NEW);
 Check::same('Existing -> IN_WORK', ClientType::fromCoreName('Existing'), ClientType::IN_WORK);
