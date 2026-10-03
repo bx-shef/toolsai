@@ -161,6 +161,7 @@ if($request->getQuery('saved') === 'Y' || $request->getQuery('deleted') === 'Y')
 					'#HIGH#' => $profile->highBorder,
 					'#IDLE#' => $profile->idleDays,
 					'#REANALYZE#' => $profile->reanalyzeDays,
+					'#ACTIVE#' => $profile->activeDays > 0 ? $profile->activeDays : '∞',
 				]))?></td>
 				<td class="adm-list-table-cell"><?=$profile->seniorId > 0 ? (int)$profile->seniorId : '—'?></td>
 				<td class="adm-list-table-cell"><?=$h(Loc::getMessage($profile->prompt === '' ? 'SH_TOOLSAI_PROFILES_PROMPT_COMMON' : 'SH_TOOLSAI_PROFILES_PROMPT_OWN'))?></td>
@@ -217,6 +218,10 @@ if($request->getQuery('saved') === 'Y' || $request->getQuery('deleted') === 'Y')
 			<tr>
 				<td class="adm-detail-content-cell-l"><?=$h(Loc::getMessage('SH_TOOLSAI_PROFILES_F_IDLE_DAYS'))?>:</td>
 				<td class="adm-detail-content-cell-r"><input type="text" name="IDLE_DAYS" size="6" value="<?=(int)$editing->idleDays?>"></td>
+			</tr>
+			<tr>
+				<td class="adm-detail-content-cell-l"><?=$h(Loc::getMessage('SH_TOOLSAI_PROFILES_F_ACTIVE_DAYS'))?>:<br><span style="color:#777"><?=$h(Loc::getMessage('SH_TOOLSAI_PROFILES_F_ACTIVE_DAYS_DESCR'))?></span></td>
+				<td class="adm-detail-content-cell-r"><input type="text" name="ACTIVE_DAYS" size="6" value="<?=(int)$editing->activeDays?>"></td>
 			</tr>
 			<tr>
 				<td class="adm-detail-content-cell-l"><?=$h(Loc::getMessage('SH_TOOLSAI_PROFILES_F_REANALYZE_DAYS'))?>:</td>

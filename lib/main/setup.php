@@ -37,6 +37,10 @@ final class Setup
 		'repeat_sale' => ['SETTINGS_REPEAT_SALE_ENGINE_CODE', 'повторные продажи'],
 		'analyze_communication' => ['SETTINGS_ANALYZE_COMMUNICATION_ENGINE_CODE', 'автоматические дела и антиспам'],
 	];
+	/**
+	 * Интервал агента до 1.4.0 — раз в сутки. Теперь из настройки
+	 * DEAL_interval (Config::getAgentInterval(), по умолчанию час).
+	 */
 	public const AGENT_INTERVAL = 86400;
 
 	/** Флажок «выбор движка в настройках ИИ сделал модуль» — повторён в install/index.php. */
@@ -661,20 +665,64 @@ final class Setup
 	/**
 	 * Агент анализа сделок. Регистрируется всегда, работает — только когда
 	 * анализ включён в настройках: так включение не требует переустановки.
+	 *
+	 * Интервал — из DEAL_interval (1.4.0). Агент уже есть с другим
+	 * интервалом — CAgent::Update() его интервала, и если следующий запуск
+	 * назначен позже, чем через новый интервал (был раз в сутки), — он
+	 * переносится ближе. Повторный вызов ничего не меняет.
 	 */
 	public function ensureAgent(): bool
 	{
+		$interval = $this->config->getAgentInterval();
 		$existing = \CAgent::GetList([], ['NAME' => static::AGENT_NAME, 'MODULE_ID' => Constants::MODULE_ID])->Fetch();
 		if($existing)
 		{
-			return true;
+			$nextExec = isset($existing['NEXT_EXEC']) && function_exists('MakeTimeStamp') ? (int)MakeTimeStamp((string)$existing['NEXT_EXEC']) : null;
+			$changes = static::planAgentUpdate(
+				isset($existing['AGENT_INTERVAL']) ? (int)$existing['AGENT_INTERVAL'] : null,
+				$nextExec ?: null,
+				$interval,
+				time()
+			);
+			if($changes === [])
+			{
+				return true;
+			}
+			if(isset($changes['NEXT_EXEC']))
+			{
+				$changes['NEXT_EXEC'] = ConvertTimeStamp($changes['NEXT_EXEC'], 'FULL');
+			}
+
+			return (bool)\CAgent::Update((int)$existing['ID'], $changes);
 		}
 
 		return (bool)\CAgent::AddAgent(
 			static::AGENT_NAME,
 			Constants::MODULE_ID,
 			'N',
-			static::AGENT_INTERVAL
+			$interval
 		);
+	}
+
+	/**
+	 * Что поменять у существующего агента. Чистая функция.
+	 *
+	 * @param int|null $current интервал агента сейчас, секунд
+	 * @param int|null $nextExec следующий запуск (unix)
+	 * @return array{AGENT_INTERVAL?: int, NEXT_EXEC?: int} пусто — менять нечего
+	 */
+	public static function planAgentUpdate(?int $current, ?int $nextExec, int $interval, int $now): array
+	{
+		$changes = [];
+		if($current !== $interval)
+		{
+			$changes['AGENT_INTERVAL'] = $interval;
+		}
+		if($nextExec !== null && $nextExec > $now + $interval)
+		{
+			$changes['NEXT_EXEC'] = $now + $interval;
+		}
+
+		return $changes;
 	}
 }

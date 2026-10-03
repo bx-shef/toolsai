@@ -105,7 +105,13 @@ final class Container
 
 	public static function getHealthAnalyzer(): HealthAnalyzer
 	{
-		return new HealthAnalyzer(new ContextBuilder(), self::getLlm());
+		return new HealthAnalyzer(new ContextBuilder(self::getAgentUserId()), self::getLlm());
+	}
+
+	/** Служебный пользователь агента (shef.options); нет модуля — 0. */
+	public static function getAgentUserId(): int
+	{
+		return class_exists(\Shef\Options\Main\Constants::class) ? (int)\Shef\Options\Main\Constants::getSystemUserId() : 0;
 	}
 
 	public static function getEscalation(): Escalation

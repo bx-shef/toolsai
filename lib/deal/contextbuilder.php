@@ -29,6 +29,18 @@ final class ContextBuilder implements FactsSourceInterface
 	private const NOTE_LENGTH = 300;
 	/** Сколько последних дел разбирать вообще. */
 	private const ACTIVITIES_LIMIT = 200;
+	/** Сколько последних звонков описывать резюме и оценкой. */
+	private const CALLS_LIMIT = 3;
+
+	/**
+	 * @param int $ignoreAuthorId дела этого автора не считаются активностью —
+	 *     служебный пользователь, от которого агент сам ставит дела. Иначе
+	 *     дело менеджеру «оживляло» бы мёртвую сделку на ACTIVE_DAYS.
+	 *     В счёт запланированных/просроченных они идут как обычно.
+	 */
+	public function __construct(private readonly int $ignoreAuthorId = 0)
+	{
+	}
 
 	public function build(int $dealId): DealFacts
 	{
@@ -55,21 +67,39 @@ final class ContextBuilder implements FactsSourceInterface
 		$outgoingWithoutAnswer = 0;
 		$seenIncoming = false;
 		$openActivities = 0;
+		$overdueActivities = 0;
+		$oldestOverdueAt = null;
 		$notes = [];
+		$calls = [];
 
 		// От свежего к старому.
 		foreach($activities as $activity)
 		{
 			$time = $activity['CREATED'] instanceof \Bitrix\Main\Type\DateTime ? $activity['CREATED']->getTimestamp() : 0;
-			$lastActivity = max($lastActivity, $time);
-			if(($activity['COMPLETED'] ?? 'Y') === 'N')
+			if($this->ignoreAuthorId <= 0 || (int)($activity['AUTHOR_ID'] ?? 0) !== $this->ignoreAuthorId)
 			{
-				$openActivities++;
+				$lastActivity = max($lastActivity, $time);
+			}
+			$deadline = $activity['DEADLINE'] ?? null;
+			$deadline = $deadline instanceof \Bitrix\Main\Type\DateTime ? $deadline->getTimestamp() : null;
+			switch(DealFacts::activityState(($activity['COMPLETED'] ?? 'Y') !== 'N', $deadline, $now))
+			{
+				case DealFacts::ACTIVITY_PLANNED:
+					$openActivities++;
+					break;
+				case DealFacts::ACTIVITY_OVERDUE:
+					$overdueActivities++;
+					$oldestOverdueAt = min($oldestOverdueAt ?? PHP_INT_MAX, (int)$deadline);
+					break;
 			}
 
 			if((int)$activity['TYPE_ID'] === \CCrmActivityType::Call)
 			{
 				$callsTotal++;
+				if(count($calls) < self::CALLS_LIMIT)
+				{
+					$calls[(int)$activity['ID']] = [$time, (int)$activity['DIRECTION'] === \CCrmActivityDirection::Incoming ? 'входящий' : 'исходящий'];
+				}
 				if((int)$activity['DIRECTION'] === \CCrmActivityDirection::Incoming)
 				{
 					$callsIncoming++;
@@ -112,7 +142,78 @@ final class ContextBuilder implements FactsSourceInterface
 			assignedById: (int)$item->getAssignedById(),
 			openActivities: $openActivities,
 			clientType: $this->getClientType($item),
+			overdueActivities: $overdueActivities,
+			oldestOverdueAt: $oldestOverdueAt,
+			callNotes: $this->getCallNotes($calls),
 		);
+	}
+
+	/**
+	 * Резюме, оценка и «не клиент» по последним звонкам — из заданий
+	 * Копилота (b_crm_ai_queue) и оценок (b_crm_ai_quality_assessment).
+	 * Разбор и форма — CallInsights. Сбой — без звонков, анализ не рвём.
+	 *
+	 * @param array<int, array{0: int, 1: string}> $calls ID дела => [время, направление]
+	 * @return string[]
+	 */
+	private function getCallNotes(array $calls): array
+	{
+		if($calls === [])
+		{
+			return [];
+		}
+
+		$ids = implode(',', array_map('intval', array_keys($calls)));
+		$summary = $failed = $notClient = $score = [];
+		try
+		{
+			$connection = \Bitrix\Main\Application::getConnection();
+			// От старых к новым: последнее успешное задание перекрывает.
+			$result = $connection->query('
+				SELECT ENTITY_ID, TYPE_ID, RESULT
+				FROM b_crm_ai_queue
+				WHERE ENTITY_TYPE_ID = '.\CCrmOwnerType::Activity.' AND ENTITY_ID IN ('.$ids.')
+					AND TYPE_ID IN (2, 4, 9) AND EXECUTION_STATUS = \'SUCCESS\'
+				ORDER BY ID ASC
+			');
+			while($row = $result->fetch())
+			{
+				$id = (int)$row['ENTITY_ID'];
+				match((int)$row['TYPE_ID'])
+				{
+					2 => $summary[$id] = CallInsights::parseSummary($row['RESULT']),
+					4 => $failed[$id] = CallInsights::parseFailed($row['RESULT']),
+					9 => $notClient[$id] = CallInsights::parseNotClient($row['RESULT']),
+					default => null,
+				};
+			}
+			$result = $connection->query('
+				SELECT ACTIVITY_ID, ASSESSMENT
+				FROM b_crm_ai_quality_assessment
+				WHERE ACTIVITY_ID IN ('.$ids.')
+				ORDER BY ID ASC
+			');
+			while($row = $result->fetch())
+			{
+				$score[(int)$row['ACTIVITY_ID']] = (int)$row['ASSESSMENT'];
+			}
+		}
+		catch(\Throwable)
+		{
+			return [];
+		}
+
+		$notes = [];
+		foreach($calls as $id => [$time, $direction])
+		{
+			$note = CallInsights::formatCall($time, $direction, $summary[$id] ?? '', $score[$id] ?? null, $failed[$id] ?? [], $notClient[$id] ?? null);
+			if($note !== '')
+			{
+				$notes[] = $note;
+			}
+		}
+
+		return $notes;
 	}
 
 	/**
@@ -136,7 +237,7 @@ final class ContextBuilder implements FactsSourceInterface
 		}
 
 		return ActivityTable::getList([
-			'select' => ['ID', 'CREATED', 'TYPE_ID', 'DIRECTION', 'SUBJECT', 'DESCRIPTION', 'COMPLETED'],
+			'select' => ['ID', 'CREATED', 'TYPE_ID', 'DIRECTION', 'SUBJECT', 'DESCRIPTION', 'COMPLETED', 'DEADLINE', 'AUTHOR_ID'],
 			'filter' => ['@ID' => $ids],
 			'order' => ['CREATED' => 'DESC', 'ID' => 'DESC'],
 		])->fetchAll();

@@ -25,9 +25,10 @@ final class Escalation
 	private const DEADLINE_HOURS = 24;
 
 	/**
-	 * @return string[] что сделано: manager_todo, comment, todo
+	 * @param DealFacts|null $facts нужны для дела старшему о просрочке
+	 * @return string[] что сделано: manager_todo, overdue_todo, comment, todo
 	 */
-	public function apply(int $dealId, Verdict $verdict, Profile $profile, ScaleDecision $decision, int $managerId): array
+	public function apply(int $dealId, Verdict $verdict, Profile $profile, ScaleDecision $decision, int $managerId, ?DealFacts $facts = null): array
 	{
 		if(($decision->isEmpty() && !$decision->seniorMissing) || !Loader::includeModule('crm'))
 		{
@@ -39,6 +40,17 @@ final class Escalation
 		if($decision->managerTodo && $this->addTodo($dealId, $managerId, static::buildManagerText($verdict)))
 		{
 			$done[] = 'manager_todo';
+
+			// Старшему — проконтролировать просрочку. Только если дело
+			// менеджеру поставилось: без него указание повисает в воздухе.
+			if($decision->seniorOverdueTodo && $facts !== null && $facts->overdueActivities > 0)
+			{
+				$overdueText = static::buildOverdueText(static::getUserName($managerId), $facts->overdueActivities, $facts->oldestOverdueAt, $verdict);
+				if($this->addTodo($dealId, $profile->seniorId, $overdueText))
+				{
+					$done[] = 'overdue_todo';
+				}
+			}
 		}
 
 		$text = static::buildText($verdict);
@@ -79,6 +91,52 @@ final class Escalation
 			$verdict->nextStep !== '' ? $verdict->nextStep : '—',
 			$verdict->why !== '' ? $verdict->why : '—'
 		);
+	}
+
+	/**
+	 * Дело старшему о просрочке менеджера (1.4.0).
+	 *
+	 * @param int|null $oldestAt срок самого старого просроченного дела (unix)
+	 */
+	public static function buildOverdueText(string $managerName, int $count, ?int $oldestAt, Verdict $verdict): string
+	{
+		return sprintf(
+			"У менеджера %s просрочены дела по сделке: %d шт.%s Проконтролировать.\nИИ-анализ: риск потери %d%%.\nПочему: %s",
+			$managerName !== '' ? $managerName : '—',
+			$count,
+			$oldestAt !== null ? ', самое старое с '.date('d.m.Y', $oldestAt).'.' : '',
+			$verdict->risk,
+			$verdict->why !== '' ? $verdict->why : '—'
+		);
+	}
+
+	/** Имя сотрудника для текста дела: «Фамилия Имя», нет — логин, нет — #ID. */
+	private static function getUserName(int $userId): string
+	{
+		if($userId <= 0 || !class_exists(\Bitrix\Main\UserTable::class))
+		{
+			return '';
+		}
+
+		try
+		{
+			$row = \Bitrix\Main\UserTable::getList([
+				'select' => ['LAST_NAME', 'NAME', 'LOGIN'],
+				'filter' => ['=ID' => $userId],
+				'limit' => 1,
+			])->fetch();
+		}
+		catch(\Throwable)
+		{
+			$row = false;
+		}
+		if(!is_array($row))
+		{
+			return '#'.$userId;
+		}
+		$name = trim(($row['LAST_NAME'] ?? '').' '.($row['NAME'] ?? ''));
+
+		return $name !== '' ? $name : (string)($row['LOGIN'] ?? '#'.$userId);
 	}
 
 	private function addComment(int $dealId, string $text, int $authorId): bool

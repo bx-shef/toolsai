@@ -30,12 +30,63 @@ final class DealFacts
 		public readonly int $categoryId = 0,
 		/** Ответственный за сделку (менеджер). */
 		public readonly int $assignedById = 0,
-		/** Запланированных (незавершённых, COMPLETED = 'N') дел у сделки. */
+		/**
+		 * Запланированных дел: незавершённых (COMPLETED = 'N') со сроком в
+		 * будущем или без срока (activityState()). Просроченные сюда не входят
+		 * с версии 1.4.0 — раньше считались все незавершённые.
+		 */
 		public readonly int $openActivities = 0,
 		/** Тип клиента сделки, Deal\ClientType::*; null — не определился. */
 		public readonly ?int $clientType = null,
+		/** Просроченных дел: незавершённых со сроком в прошлом. С 1.4.0. */
+		public readonly int $overdueActivities = 0,
+		/** Срок самого старого просроченного дела (unix); null — просроченных нет. */
+		public readonly ?int $oldestOverdueAt = null,
+		/** @var string[] содержание последних звонков (CallInsights::formatCall()), от свежего к старому. С 1.4.0. */
+		public readonly array $callNotes = [],
 	)
 	{
+	}
+
+	public const ACTIVITY_DONE = 'done';
+	public const ACTIVITY_PLANNED = 'planned';
+	public const ACTIVITY_OVERDUE = 'overdue';
+
+	/**
+	 * Состояние дела по его полям в b_crm_act (crm ActivityTable):
+	 * COMPLETED и DEADLINE. Чистая функция.
+	 *
+	 *   завершено                         — done;
+	 *   не завершено, срока нет           — planned;
+	 *   не завершено, срок в будущем      — planned (ровно «сейчас» — тоже);
+	 *   не завершено, срок прошёл         — overdue.
+	 *
+	 * «Без срока» ядро хранит не NULL, а максимальной датой базы — 9999 год
+	 * (CCrmDateTimeHelper::GetMaxDatabaseDate(), IsMaxDatabaseDate() смотрит
+	 * на год 9999). Такая дата всегда в будущем — planned без отдельной
+	 * ветки; NULL (старые дела) — тоже planned.
+	 *
+	 * @param int|null $deadline срок (unix); null — не задан
+	 */
+	public static function activityState(bool $completed, ?int $deadline, int $now): string
+	{
+		if($completed)
+		{
+			return static::ACTIVITY_DONE;
+		}
+
+		return ($deadline === null || $deadline <= 0 || $deadline >= $now) ? static::ACTIVITY_PLANNED : static::ACTIVITY_OVERDUE;
+	}
+
+	/**
+	 * Живая ли сделка: последняя активность не старше $activeDays дней
+	 * (поле профиля ACTIVE_DAYS). 0 — без ограничения. Мёртвую сделку
+	 * анализировать незачем: модель скажет «мертва, старший не нужен», а
+	 * запрос оплачен (боевой прогон 1.3.0: 575-780 дней без активности).
+	 */
+	public function isAlive(int $activeDays): bool
+	{
+		return $activeDays <= 0 || $this->daysSinceLastActivity <= $activeDays;
 	}
 
 	/**
@@ -52,7 +103,7 @@ final class DealFacts
 			return false;   // работа идёт
 		}
 
-		if($this->callsTotal === 0 && $this->recentNotes === [] && $this->stageRollbacks === 0)
+		if($this->callsTotal === 0 && $this->recentNotes === [] && $this->stageRollbacks === 0 && $this->callNotes === [])
 		{
 			return false;   // не о чем рассуждать
 		}
@@ -71,7 +122,9 @@ final class DealFacts
 			'Откатов по стадиям назад: '.$this->stageRollbacks,
 			sprintf('Звонков всего: %d (входящих: %d)', $this->callsTotal, $this->callsIncoming),
 			'Исходящих подряд после последнего входящего: '.$this->outgoingWithoutAnswer,
-			'Запланированных (незавершённых) дел: '.$this->openActivities,
+			'Запланированных дел (не завершены, срок не прошёл): '.$this->openActivities,
+			'Просроченных дел (не завершены, срок прошёл): '.$this->overdueActivities
+				.($this->oldestOverdueAt !== null ? ', самое старое — с '.date('d.m.Y', $this->oldestOverdueAt) : ''),
 		];
 
 		if($this->recentNotes !== [])
@@ -79,6 +132,16 @@ final class DealFacts
 			$lines[] = '';
 			$lines[] = 'Последние дела (от свежего к старому):';
 			foreach(array_values($this->recentNotes) as $i => $note)
+			{
+				$lines[] = sprintf('%d) %s', $i + 1, $note);
+			}
+		}
+
+		if($this->callNotes !== [])
+		{
+			$lines[] = '';
+			$lines[] = 'Последние звонки — резюме и оценка Копилота (от свежего к старому):';
+			foreach(array_values($this->callNotes) as $i => $note)
 			{
 				$lines[] = sprintf('%d) %s', $i + 1, $note);
 			}

@@ -24,6 +24,7 @@ $MESS['SH_TOOLSAI_STATS_DEALS_ANALYZED'] = 'разобрано моделью';
 $MESS['SH_TOOLSAI_STATS_DEALS_SKIPPED'] = 'пропущено';
 $MESS['SH_TOOLSAI_STATS_DEALS_TODO'] = 'Дел менеджерам';
 $MESS['SH_TOOLSAI_STATS_DEALS_ESC'] = 'дел старшему';
+$MESS['SH_TOOLSAI_STATS_DEALS_OVERDUE'] = 'дел старшему о просрочке';
 $MESS['SH_TOOLSAI_STATS_DEALS_NOTE'] = 'У сделки хранится только последняя проверка: сделка, проверенная и в периоде, и после него, здесь не видна.';
 $MESS['SH_TOOLSAI_STATS_COL_MANAGER'] = 'Ответственный';
 $MESS['SH_TOOLSAI_STATS_COL_PROFILE'] = 'Профиль';

@@ -223,6 +223,14 @@ $options->addTab(
 		->addOption(
 			(new Options\NumberInt('maxperrun'))
 				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_maxperrun'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_maxperrun_descr'))
+		)
+		->addOption(
+			// Интервал агента, минут. Применяется кнопкой «Проверить и
+			// включить» (Main\Setup::ensureAgent()). С 1.4.0.
+			(new Options\NumberInt('interval'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_DEAL_interval'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_DEAL_interval_descr'))
 		)
 		->addOption(
 			// Направления, пороги, старший и промпт — в профилях (1.1.0).

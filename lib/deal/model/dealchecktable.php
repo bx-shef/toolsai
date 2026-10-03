@@ -36,6 +36,9 @@ class DealCheckTable extends DataManager
 			(new Fields\DatetimeField('MANAGER_TODO_AT'))->configureNullable(),
 			// Каким профилем проверяли. 0 — профиля не нашлось. С версии 1.1.0.
 			(new Fields\IntegerField('PROFILE_ID'))->configureDefaultValue(0),
+			// Когда ставили старшему дело о просроченных делах менеджера:
+			// повтор не чаще REANALYZE_DAYS профиля. С версии 1.4.0.
+			(new Fields\DatetimeField('OVERDUE_NOTIFIED_AT'))->configureNullable(),
 		];
 	}
 
@@ -62,6 +65,7 @@ class DealCheckTable extends DataManager
 				ESCALATED_AT DATETIME NULL,
 				MANAGER_TODO_AT DATETIME NULL,
 				PROFILE_ID INT(11) NOT NULL DEFAULT 0,
+				OVERDUE_NOTIFIED_AT DATETIME NULL,
 				PRIMARY KEY (ID),
 				UNIQUE KEY UX_SHEF_TOOLSAI_DEAL (DEAL_ID),
 				KEY IX_SHEF_TOOLSAI_CHECKED (CHECKED_AT)
@@ -71,7 +75,7 @@ class DealCheckTable extends DataManager
 	}
 
 	/**
-	 * Таблица из версии до 1.1.0 — дописать новые столбцы. Идемпотентно:
+	 * Таблица из прежней версии (до 1.1.0, до 1.4.0) — дописать новые столбцы. Идемпотентно:
 	 * столбец уже есть — не трогаем. Зовут установщик (InstallDB), кнопка
 	 * «Проверить и включить» и агент перед прогоном (Deal\ProfileMigration).
 	 */
@@ -83,6 +87,7 @@ class DealCheckTable extends DataManager
 		$columns = [
 			'MANAGER_TODO_AT' => 'DATETIME NULL',
 			'PROFILE_ID' => 'INT(11) NOT NULL DEFAULT 0',
+			'OVERDUE_NOTIFIED_AT' => 'DATETIME NULL',
 		];
 		foreach($columns as $name => $definition)
 		{

@@ -182,10 +182,14 @@ namespace
 	class CAgent
 	{
 		public static array $agents = [];
+		/** @var array<string, int> имя => интервал, секунд */
+		public static array $intervals = [];
+		/** @var array[] вызовы Update */
+		public static array $updates = [];
 
 		public static function GetList(array $order, array $filter): object
 		{
-			$found = in_array($filter['NAME'], static::$agents, true) ? ['ID' => 1] : false;
+			$found = in_array($filter['NAME'], static::$agents, true) ? ['ID' => 1, 'AGENT_INTERVAL' => (string)(static::$intervals[$filter['NAME']] ?? 86400)] : false;
 
 			return new class($found)
 			{
@@ -201,8 +205,20 @@ namespace
 		public static function AddAgent(string $name, string $module, string $period, int $interval): int
 		{
 			static::$agents[] = $name;
+			static::$intervals[$name] = $interval;
 
 			return count(static::$agents);
+		}
+
+		public static function Update(int $id, array $fields): bool
+		{
+			static::$updates[] = $fields;
+			if(isset($fields['AGENT_INTERVAL']))
+			{
+				static::$intervals[static::$agents[$id - 1]] = $fields['AGENT_INTERVAL'];
+			}
+
+			return true;
 		}
 	}
 }
@@ -293,6 +309,29 @@ Option::set('shef.toolsai', 'SYS_baasset', '');
 $setup()->ensureBaasIgnored();
 Check::same('включён не нами — пометки нет, удаление его не снимет', Option::get('shef.toolsai', 'SYS_baasset'), '');
 Check::same('агент один', \CAgent::$agents, [Setup::AGENT_NAME]);
+Check::same('интервал по умолчанию — час', \CAgent::$intervals[Setup::AGENT_NAME], 3600);
+Check::same('повторное включение интервал не трогает', \CAgent::$updates, []);
+
+Check::group('интервал агента');
+
+\CAgent::$intervals[Setup::AGENT_NAME] = 86400;   // агент из 1.3.0 — раз в сутки
+Check::same('старый агент обновлён', [$setup()->ensureAgent(), \CAgent::$updates], [true, [['AGENT_INTERVAL' => 3600]]]);
+Check::same('и только один', \CAgent::$agents, [Setup::AGENT_NAME]);
+\CAgent::$updates = [];
+Option::set('shef.toolsai', 'DEAL_interval', '15');
+$setup()->ensureAgent();
+Check::same('настройка в минутах', \CAgent::$intervals[Setup::AGENT_NAME], 900);
+Option::set('shef.toolsai', 'DEAL_interval', '1');
+Check::same('меньше 10 минут — умолчание, а не «каждый хит»', (new Config())->getAgentInterval(), 3600);
+Option::set('shef.toolsai', 'DEAL_interval', 'час');
+Check::same('мусор — умолчание', (new Config())->getAgentInterval(), 3600);
+Option::set('shef.toolsai', 'DEAL_interval', '');
+\CAgent::$updates = [];
+
+$now = 1_800_000_000;
+Check::same('интервал тот же, запуск скоро — ничего', Setup::planAgentUpdate(3600, $now + 600, 3600, $now), []);
+Check::same('запуск назначен через сутки — переносится', Setup::planAgentUpdate(86400, $now + 80000, 3600, $now), ['AGENT_INTERVAL' => 3600, 'NEXT_EXEC' => $now + 3600]);
+Check::same('запуск неизвестен — только интервал', Setup::planAgentUpdate(86400, null, 3600, $now), ['AGENT_INTERVAL' => 3600]);
 
 Check::group('смена адреса и ротация токена');
 

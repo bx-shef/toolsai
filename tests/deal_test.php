@@ -22,6 +22,7 @@ $root = dirname(__DIR__);
 require_once $root.'/tests/stub/autoload.php';
 require_once $root.'/tests/assert.php';
 
+use Shef\ToolsAi\Deal\CallInsights;
 use Shef\ToolsAi\Deal\ContextBuilder;
 use Shef\ToolsAi\Deal\DealFacts;
 use Shef\ToolsAi\Config;
@@ -61,7 +62,8 @@ Check::group('промпт — сводка, а не транскрипт');
 $text = $facts(10, 2, ['01.09.2026, Звонок: просил скидку'])->toPromptText();
 Check::same('сумма с разрядами', str_contains($text, 'Сумма: 125 000.50 BYN'), true);
 Check::same('дни без активности', str_contains($text, 'Дней без активности: 10'), true);
-Check::same('строка о запланированных делах', str_contains($text, 'Запланированных (незавершённых) дел: 0'), true);
+Check::same('строка о запланированных делах', str_contains($text, 'Запланированных дел (не завершены, срок не прошёл): 0'), true);
+Check::same('строка о просроченных делах', str_contains($text, 'Просроченных дел (не завершены, срок прошёл): 0'), true);
 Check::same('записи пронумерованы', str_contains($text, '1) 01.09.2026, Звонок: просил скидку'), true);
 
 Check::group('вердикт');
@@ -245,5 +247,79 @@ Check::same('вперёд — ноль', ContextBuilder::countBackward([10, 20, 
 Check::same('назад один раз', ContextBuilder::countBackward([10, 30, 20, 40]), 1);
 Check::same('туда-обратно дважды', ContextBuilder::countBackward([10, 20, 10, 20, 10]), 2);
 Check::same('пустая история', ContextBuilder::countBackward([]), 0);
+
+Check::group('запланированные и просроченные дела (1.4.0)');
+
+$now = 1_800_000_000;
+Check::same(
+	'по COMPLETED и DEADLINE',
+	[
+		DealFacts::activityState(true, $now - 86400, $now),
+		DealFacts::activityState(false, null, $now),
+		DealFacts::activityState(false, $now + 3600, $now),
+		DealFacts::activityState(false, $now, $now),
+		DealFacts::activityState(false, $now - 1, $now),
+		DealFacts::activityState(false, mktime(23, 59, 59, 12, 31, 9999), $now),
+	],
+	['done', 'planned', 'planned', 'planned', 'overdue', 'planned']
+);
+
+$overdueFacts = new DealFacts(
+	dealId: 15, title: 'x', stage: 'y', opportunity: 0.0, currency: 'BYN',
+	daysSinceCreated: 700, daysSinceLastActivity: 600, stageRollbacks: 0,
+	callsTotal: 1, callsIncoming: 0, outgoingWithoutAnswer: 1, recentNotes: [],
+	assignedById: 3, openActivities: 0, overdueActivities: 2, oldestOverdueAt: mktime(12, 0, 0, 3, 5, 2025),
+	callNotes: ['01.09.2026, входящий: резюме: просил скидку'],
+);
+$text = $overdueFacts->toPromptText();
+Check::same('в сводке обе строки', [str_contains($text, 'Запланированных дел (не завершены, срок не прошёл): 0'), str_contains($text, 'Просроченных дел (не завершены, срок прошёл): 2, самое старое — с 05.03.2025')], [true, true]);
+Check::same('в сводке звонки', str_contains($text, "Последние звонки — резюме и оценка Копилота (от свежего к старому):\n1) 01.09.2026, входящий: резюме: просил скидку"), true);
+
+Check::group('живые сделки');
+
+Check::same('600 дней без активности, срок 60 — мёртвая', $overdueFacts->isAlive(60), false);
+Check::same('срок 0 — без ограничения', $overdueFacts->isAlive(0), true);
+Check::same('ровно срок — живая', $overdueFacts->isAlive(600), true);
+$llm = new EchoLlm();
+$analysis = (new HealthAnalyzer(new class($overdueFacts) implements \Shef\ToolsAi\Deal\FactsSourceInterface {
+	public function __construct(private readonly DealFacts $f) {}
+	public function build(int $dealId): DealFacts { return $this->f; }
+}, $llm))->analyze(15, static fn(): Profile => Profile::fromRow(['IS_ENABLED' => 'Y', 'IDLE_DAYS' => 3]));
+Check::same('мёртвая — пропуск без модели', [$analysis->verdict->skipped, $analysis->llm, str_contains($analysis->verdict->skipReason, '600')], [true, null, true]);
+
+Check::group('дело старшему о просрочке');
+
+Check::same(
+	'текст',
+	Escalation::buildOverdueText('Иванов Пётр', 2, mktime(12, 0, 0, 3, 5, 2025), Verdict::fromArray(['risk' => 95, 'why' => 'молчит'])),
+	"У менеджера Иванов Пётр просрочены дела по сделке: 2 шт., самое старое с 05.03.2025. Проконтролировать.\nИИ-анализ: риск потери 95%.\nПочему: молчит"
+);
+Check::same('без даты — без хвоста', str_starts_with(Escalation::buildOverdueText('', 1, null, Verdict::fromArray([])), 'У менеджера — просрочены дела по сделке: 1 шт. Проконтролировать.'), true);
+\Bitrix\Crm\Activity\Entity\ToDo::$saved = [];
+$dead = Verdict::fromArray(['risk' => 100, 'needSenior' => false, 'why' => 'мертва']);
+$profile7 = Profile::fromRow(['IS_ENABLED' => 'Y', 'LOW_BORDER' => '50', 'HIGH_BORDER' => '70', 'SENIOR_ID' => '7']);
+Check::same(
+	'менеджеру и старшему',
+	(new Escalation())->apply(15, $dead, $profile7, RiskScale::decide($dead, $profile7, 3, 0, false, false, 2), 3, $overdueFacts),
+	['manager_todo', 'overdue_todo']
+);
+Check::same('дела ушли 3 и 7', \Bitrix\Crm\Activity\Entity\ToDo::$saved, [[15, 3], [15, 7]]);
+
+Check::group('содержание звонков');
+
+Check::same('резюме', CallInsights::parseSummary('{"summary":"  Клиент   просил скидку  "}'), 'Клиент просил скидку');
+Check::same('резюме: мусор — пусто', [CallInsights::parseSummary('не json'), CallInsights::parseSummary(null), CallInsights::parseSummary('{"summary":5}')], ['', '', '']);
+Check::same('резюме обрезается', mb_strlen(CallInsights::parseSummary(json_encode(['summary' => str_repeat('а', 1000)]))), CallInsights::SUMMARY_LENGTH);
+Check::same('не клиент с причиной', CallInsights::parseNotClient('{"isClient":false,"reasonIfIsClientFalse":"спам","actions":[]}'), 'спам');
+Check::same('клиент или нет признака — null', [CallInsights::parseNotClient('{"isClient":true}'), CallInsights::parseNotClient('{}')], [null, null]);
+Check::same('невыполненные пункты', CallInsights::parseFailed('{"criteria":[{"criterion":"Приветствие","status":true},{"criterion":"Выявил потребность","status":false},{"criterion":"Не оценён","status":null}]}'), ['Выявил потребность']);
+Check::same(
+	'строка звонка',
+	CallInsights::formatCall(mktime(12, 0, 0, 9, 1, 2026), 'входящий', 'просил скидку', 62, ['Выявил потребность', 'Назначил шаг'], null),
+	'01.09.2026, входящий: резюме: просил скидку. оценка по скрипту: 62%, не выполнено: Выявил потребность; Назначил шаг'
+);
+Check::same('не клиент — первым', CallInsights::formatCall(mktime(12, 0, 0, 9, 1, 2026), 'исходящий', '', null, [], 'ошиблись номером'), '01.09.2026, исходящий: не клиент (ошиблись номером)');
+Check::same('нечего сказать — пусто', CallInsights::formatCall(1, 'входящий', '', null, [], null), '');
+Check::same('пунктов не больше пяти', substr_count(CallInsights::formatCall(1, 'в', '', 10, array_fill(0, 9, 'Ж'), null), 'Ж'), 5);
 
 Check::finish();

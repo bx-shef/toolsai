@@ -37,6 +37,8 @@ class DealProfileTable extends DataManager
 			(new Fields\IntegerField('LOW_BORDER'))->configureDefaultValue(Profile::DEFAULT_LOW_BORDER),
 			(new Fields\IntegerField('HIGH_BORDER'))->configureDefaultValue(Profile::DEFAULT_HIGH_BORDER),
 			(new Fields\IntegerField('SENIOR_ID'))->configureDefaultValue(0),
+			// Анализировать только живые сделки. С версии 1.4.0.
+			(new Fields\IntegerField('ACTIVE_DAYS'))->configureDefaultValue(Profile::DEFAULT_ACTIVE_DAYS),
 		];
 	}
 
@@ -45,6 +47,8 @@ class DealProfileTable extends DataManager
 		$connection = Application::getConnection();
 		if($connection->isTableExists(static::getTableName()))
 		{
+			static::upgrade();
+
 			return;
 		}
 
@@ -62,6 +66,7 @@ class DealProfileTable extends DataManager
 				LOW_BORDER INT(11) NOT NULL DEFAULT %d,
 				HIGH_BORDER INT(11) NOT NULL DEFAULT %d,
 				SENIOR_ID INT(11) NOT NULL DEFAULT 0,
+				ACTIVE_DAYS INT(11) NOT NULL DEFAULT %d,
 				PRIMARY KEY (ID),
 				KEY IX_SHEF_TOOLSAI_PROFILE_CAT (CATEGORY_ID, IS_ENABLED)
 			)',
@@ -70,8 +75,24 @@ class DealProfileTable extends DataManager
 			Profile::DEFAULT_IDLE_DAYS,
 			Profile::DEFAULT_REANALYZE_DAYS,
 			Profile::DEFAULT_LOW_BORDER,
-			Profile::DEFAULT_HIGH_BORDER
+			Profile::DEFAULT_HIGH_BORDER,
+			Profile::DEFAULT_ACTIVE_DAYS
 		));
+	}
+
+	/**
+	 * Таблица из версии до 1.4.0 — дописать ACTIVE_DAYS. Идемпотентно, как
+	 * DealCheckTable::upgrade(). Существующие профили получают умолчание
+	 * (60 дней) — мёртвые сделки перестают анализироваться сразу.
+	 */
+	public static function upgrade(): void
+	{
+		$connection = Application::getConnection();
+		$existing = array_change_key_case((array)$connection->getTableFields(static::getTableName()), CASE_UPPER);
+		if(!array_key_exists('ACTIVE_DAYS', $existing))
+		{
+			$connection->queryExecute(sprintf('ALTER TABLE %s ADD COLUMN ACTIVE_DAYS INT(11) NOT NULL DEFAULT %d', static::getTableName(), Profile::DEFAULT_ACTIVE_DAYS));
+		}
 	}
 
 	public static function drop(): void
