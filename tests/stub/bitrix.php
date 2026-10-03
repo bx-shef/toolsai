@@ -571,6 +571,14 @@ namespace Bitrix\Main
 					/** @var string[] */
 					public array $queries = [];
 
+					/** @var array<string, string[]> столбцы таблицы; нет записи — все текущие */
+					public array $fields = [];
+
+					public function getTableFields(string $table): array
+					{
+						return array_flip($this->fields[$table] ?? ['ID', 'MANAGER_TODO_AT', 'PROFILE_ID']);
+					}
+
 					public function isTableExists(string $table): bool
 					{
 						return in_array($table, $this->tables, true);

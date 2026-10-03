@@ -226,8 +226,8 @@ $setup = static function() use (&$probeStatus): Setup
 Check::group('подготовка (установщик) портал не меняет');
 
 $report = $setup()->prepare($portal.'/www', $root);
-Check::same('только токен и заглушки', array_keys($report), ['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE]);
-Check::same('токен и заглушки на месте', array_column($report, 'ok'), [true, true, true]);
+Check::same('только токен и заглушки', array_keys($report), ['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE, 'page '.Constants::DEAL_PROFILES_FILE]);
+Check::same('токен и заглушки на месте', array_column($report, 'ok'), [true, true, true, true]);
 Check::same(
 	'обход BaaS не тронут, в ядро ничего не ушло, агента нет',
 	[\Bitrix\Crm\Integration\AI\BaasManager::$set, \Bitrix\AI\ThirdParty\Manager::$calls, \CAgent::$agents, Option::get('shef.toolsai', 'SYS_baasset')],

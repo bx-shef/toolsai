@@ -34,11 +34,12 @@ $require = static fn(string $path): string => "<?php require(\$_SERVER['DOCUMENT
 Check::group('какие заглушки');
 
 Check::same(
-	'эндпоинт и страница расхода',
+	'эндпоинт, страница расхода и страница профилей',
 	array_map(static fn(PublicPage $page): string => $page->file.' -> '.$page->modulePage, PublicPage::getList()),
 	[
 		'/bitrix/tools/shef_toolsai_completions.php -> /endpoint/completions.php',
 		'/bitrix/admin/shef_toolsai_quota.php -> /admin/quota.php',
+		'/bitrix/admin/shef_toolsai_deal_profiles.php -> /admin/dealprofiles.php',
 	]
 );
 foreach(PublicPage::getList() as $page)
@@ -46,7 +47,7 @@ foreach(PublicPage::getList() as $page)
 	Check::same('страница модуля есть: '.$page->modulePage, is_file($root.$page->modulePage), true);
 }
 
-[$endpoint, $quota] = PublicPage::getList();
+[$endpoint, $quota, $profiles] = PublicPage::getList();
 $target = $endpoint->getTarget($www);
 
 Check::group('путь — туда, где стоит модуль');

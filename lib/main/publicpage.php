@@ -3,8 +3,8 @@
 namespace Shef\ToolsAi\Main;
 
 /**
- * Заглушки публичных страниц модуля: эндпоинт движка в /bitrix/tools и
- * страница расхода в /bitrix/admin.
+ * Заглушки публичных страниц модуля: эндпоинт движка в /bitrix/tools,
+ * страницы расхода и профилей анализа сделок в /bitrix/admin.
  *
  * Каталог модуля браузеру недоступен, поэтому снаружи лежит файл в одну
  * строку, как принято в Битриксе:
@@ -42,6 +42,7 @@ class PublicPage
 		return [
 			new static(Constants::ENDPOINT_FILE, Constants::ENDPOINT_MODULE_PAGE),
 			new static(Constants::QUOTA_FILE, Constants::QUOTA_MODULE_PAGE),
+			new static(Constants::DEAL_PROFILES_FILE, Constants::DEAL_PROFILES_MODULE_PAGE),
 		];
 	}
 

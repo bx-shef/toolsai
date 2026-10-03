@@ -7,7 +7,7 @@
  * построении меню. Регистрировать и копировать его не нужно.
  *
  * Только администратору: на странице расход в деньгах и кнопка, которая
- * регистрирует движки.
+ * регистрирует движки; профили анализа сделок тратят квоту.
  */
 
 use Bitrix\Main\Localization\Loc;
@@ -39,4 +39,15 @@ return [
 	'url' => Constants::QUOTA_FILE.'?lang='.LANGUAGE_ID,
 	'icon' => 'sys_menu_icon',
 	'items_id' => 'menu_shef_toolsai',
+	'items' => [
+		[
+			'text' => (string)Loc::getMessage('SH_TOOLSAI_MENU'),
+			'url' => Constants::QUOTA_FILE.'?lang='.LANGUAGE_ID,
+		],
+		[
+			'text' => (string)Loc::getMessage('SH_TOOLSAI_MENU_PROFILES'),
+			'url' => Constants::DEAL_PROFILES_FILE.'?lang='.LANGUAGE_ID,
+			'more_url' => [Constants::DEAL_PROFILES_FILE],
+		],
+	],
 ];

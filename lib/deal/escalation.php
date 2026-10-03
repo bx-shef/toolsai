@@ -5,54 +5,55 @@ namespace Shef\ToolsAi\Deal;
 use Bitrix\Crm\ItemIdentifier;
 use Bitrix\Main\Loader;
 use Bitrix\Main\Type\DateTime;
-use Shef\ToolsAi\Config;
 
 /**
- * Что делаем, когда вердикт говорит «зови старшего».
+ * Шаги по решению шкалы профиля (RiskScale::decide()).
  *
- * Два шага по возрастанию навязчивости:
- *   1) комментарий в таймлайне сделки — видно при открытии карточки;
- *   2) дело «Сделать» (To-Do) на старшего с дедлайном — остаётся в списке,
- *      пока его не закроют. Старший не задан — только комментарий.
+ * По возрастанию навязчивости:
+ *   1) дело «Сделать» (To-Do) ответственному — у сделки высокий риск и нет
+ *      ни одного запланированного дела;
+ *   2) комментарий в таймлайне сделки — видно при открытии карточки;
+ *   3) дело старшему профиля с дедлайном — остаётся в списке, пока его не
+ *      закроют. Старший не задан — только комментарий, и отчёт говорит почему.
  *
  * Уведомления в чат сознательно нет: их быстро перестают читать, а дело
  * в списке остаётся. Смена ответственного — слишком грубо для автомата.
  */
 final class Escalation
 {
-	/** Дедлайн дела старшему, часов. */
+	/** Дедлайн дела, часов. */
 	private const DEADLINE_HOURS = 24;
 
-	public function __construct(private readonly Config $config)
-	{
-	}
-
 	/**
-	 * @return string[] что сделано: comment, todo
+	 * @return string[] что сделано: manager_todo, comment, todo
 	 */
-	public function escalate(int $dealId, Verdict $verdict): array
+	public function apply(int $dealId, Verdict $verdict, Profile $profile, ScaleDecision $decision, int $managerId): array
 	{
-		if(!$verdict->shouldEscalate($this->config->getEscalationThreshold()) || !Loader::includeModule('crm'))
+		if(($decision->isEmpty() && !$decision->seniorMissing) || !Loader::includeModule('crm'))
 		{
 			return [];
 		}
 
-		$text = static::buildText($verdict);
 		$done = [];
 
-		if($this->addComment($dealId, $text))
+		if($decision->managerTodo && $this->addTodo($dealId, $managerId, static::buildManagerText($verdict)))
+		{
+			$done[] = 'manager_todo';
+		}
+
+		$text = static::buildText($verdict);
+		if($decision->comment && $this->addComment($dealId, $text, $profile->seniorId))
 		{
 			$done[] = 'comment';
 		}
 
-		// Старший не задан (например, после переустановки) — дело не ставится,
-		// и отчёт прогона говорит почему, а не молчит (приёмка, bx-shef/toolsai#3).
-		$seniorId = $this->config->getSeniorUserId();
-		if($seniorId <= 0 && $done !== [])
+		// Старший не задан — дело не ставится, и отчёт прогона говорит почему,
+		// а не молчит (приёмка, bx-shef/toolsai#3).
+		if($decision->seniorMissing)
 		{
 			$done[] = 'старший не задан — дела нет';
 		}
-		elseif($seniorId > 0 && $this->addTodo($dealId, $seniorId, $text))
+		elseif($decision->seniorTodo && $this->addTodo($dealId, $profile->seniorId, $text))
 		{
 			$done[] = 'todo';
 		}
@@ -70,7 +71,17 @@ final class Escalation
 		);
 	}
 
-	private function addComment(int $dealId, string $text): bool
+	public static function buildManagerText(Verdict $verdict): string
+	{
+		return sprintf(
+			"ИИ-анализ сделки: нет запланированных дел, риск %d%%.\nЧто сделать: %s\nПочему: %s",
+			$verdict->risk,
+			$verdict->nextStep !== '' ? $verdict->nextStep : '—',
+			$verdict->why !== '' ? $verdict->why : '—'
+		);
+	}
+
+	private function addComment(int $dealId, string $text, int $authorId): bool
 	{
 		if(!class_exists(\Bitrix\Crm\Timeline\CommentEntry::class))
 		{
@@ -79,7 +90,7 @@ final class Escalation
 
 		$id = \Bitrix\Crm\Timeline\CommentEntry::create([
 			'TEXT' => $text,
-			'AUTHOR_ID' => $this->config->getSeniorUserId() ?: 1,
+			'AUTHOR_ID' => $authorId ?: 1,
 			'BINDINGS' => [
 				['ENTITY_TYPE_ID' => \CCrmOwnerType::Deal, 'ENTITY_ID' => $dealId],
 			],

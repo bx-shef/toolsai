@@ -31,6 +31,11 @@ class DealCheckTable extends DataManager
 			(new Fields\StringField('WHY'))->configureSize(500)->configureNullable(),
 			(new Fields\StringField('NEXT_STEP'))->configureSize(300)->configureNullable(),
 			(new Fields\DatetimeField('ESCALATED_AT'))->configureNullable(),
+			// Когда ставили дело менеджеру (шкала профиля, Deal\RiskScale):
+			// повтор не чаще REANALYZE_DAYS профиля. С версии 1.1.0.
+			(new Fields\DatetimeField('MANAGER_TODO_AT'))->configureNullable(),
+			// Каким профилем проверяли. 0 — профиля не нашлось. С версии 1.1.0.
+			(new Fields\IntegerField('PROFILE_ID'))->configureDefaultValue(0),
 		];
 	}
 
@@ -39,6 +44,8 @@ class DealCheckTable extends DataManager
 		$connection = Application::getConnection();
 		if($connection->isTableExists(static::getTableName()))
 		{
+			static::upgrade();
+
 			return;
 		}
 
@@ -53,12 +60,37 @@ class DealCheckTable extends DataManager
 				WHY VARCHAR(500) NULL,
 				NEXT_STEP VARCHAR(300) NULL,
 				ESCALATED_AT DATETIME NULL,
+				MANAGER_TODO_AT DATETIME NULL,
+				PROFILE_ID INT(11) NOT NULL DEFAULT 0,
 				PRIMARY KEY (ID),
 				UNIQUE KEY UX_SHEF_TOOLSAI_DEAL (DEAL_ID),
 				KEY IX_SHEF_TOOLSAI_CHECKED (CHECKED_AT)
 			)',
 			static::getTableName()
 		));
+	}
+
+	/**
+	 * Таблица из версии до 1.1.0 — дописать новые столбцы. Идемпотентно:
+	 * столбец уже есть — не трогаем. Зовут установщик (InstallDB), кнопка
+	 * «Проверить и включить» и агент перед прогоном (Deal\ProfileMigration).
+	 */
+	public static function upgrade(): void
+	{
+		$connection = Application::getConnection();
+		$existing = array_change_key_case((array)$connection->getTableFields(static::getTableName()), CASE_UPPER);
+
+		$columns = [
+			'MANAGER_TODO_AT' => 'DATETIME NULL',
+			'PROFILE_ID' => 'INT(11) NOT NULL DEFAULT 0',
+		];
+		foreach($columns as $name => $definition)
+		{
+			if(!array_key_exists($name, $existing))
+			{
+				$connection->queryExecute(sprintf('ALTER TABLE %s ADD COLUMN %s %s', static::getTableName(), $name, $definition));
+			}
+		}
 	}
 
 	public static function drop(): void

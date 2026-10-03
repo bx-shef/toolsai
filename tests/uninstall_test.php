@@ -195,7 +195,7 @@ $given = static function(): shef_toolsai
 	Option::set(NEIGHBOUR, 'DEF_systemuserid', '9');
 
 	$connection = Application::getConnection();
-	$connection->tables = ['shef_toolsai_usage', 'shef_toolsai_deal_check'];
+	$connection->tables = ['shef_toolsai_usage', 'shef_toolsai_deal_check', 'shef_toolsai_deal_profile'];
 
 	return new shef_toolsai();
 };
@@ -208,7 +208,7 @@ $module->UnInstallDB();
 Check::same('идентификатор модуля тот самый', $module->MODULE_ID, 'shef.toolsai');
 Check::same('квота стёрта', Option::get('shef.toolsai', 'DEF_quota', 'нет'), 'нет');
 Check::same('токен стёрт', Option::get('shef.toolsai', 'SYS_token', 'нет'), 'нет');
-Check::same('таблицы удалены', Application::getConnection()->queries, ['DROP TABLE shef_toolsai_usage', 'DROP TABLE shef_toolsai_deal_check']);
+Check::same('таблицы удалены', Application::getConnection()->queries, ['DROP TABLE shef_toolsai_usage', 'DROP TABLE shef_toolsai_deal_check', 'DROP TABLE shef_toolsai_deal_profile']);
 Check::same('модуль снят с регистрации', CoreCalls::$unregistered, ['shef.toolsai']);
 Check::same('кеш сброшен', CoreCalls::$cacheCleaned, 1);
 Check::same('настройка shef.options на месте', Option::get(NEIGHBOUR, 'DEF_systemuserid', 'нет'), '9');
@@ -226,10 +226,11 @@ $module = $given();
 Application::getConnection()->tables = [];
 $module->InstallDB();
 $queries = Application::getConnection()->queries;
-Check::same('две таблицы', count($queries), 2);
+Check::same('три таблицы', count($queries), 3);
 Check::same('журнал с уникальным хэшем задания', str_contains($queries[0] ?? '', 'CREATE TABLE shef_toolsai_usage') && str_contains($queries[0] ?? '', 'UNIQUE KEY UX_SHEF_TOOLSAI_JOB (JOB_HASH)'), true);
 Check::same('стоимость — BIGINT', str_contains($queries[0] ?? '', 'COST_MICRO BIGINT'), true);
 Check::same('проверки сделок — одна строка на сделку', str_contains($queries[1] ?? '', 'UNIQUE KEY UX_SHEF_TOOLSAI_DEAL (DEAL_ID)'), true);
+Check::same('профили анализа сделок', str_contains($queries[2] ?? '', 'CREATE TABLE shef_toolsai_deal_profile'), true);
 
 $module = $given();
 $module->InstallDB();
@@ -316,7 +317,7 @@ $report = (new ReflectionProperty($module, 'setupReport'))->getValue($module);
 Check::same(
 	'установка не включает модуль: только токен и заглушки — без обхода BaaS, движков и агента',
 	[array_keys($report), \Bitrix\Crm\Integration\AI\BaasManager::$ignored, Option::get('shef.toolsai', 'SYS_baasset')],
-	[['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE], false, '']
+	[['token', 'page '.Constants::ENDPOINT_FILE, 'page '.Constants::QUOTA_FILE, 'page '.Constants::DEAL_PROFILES_FILE], false, '']
 );
 Check::same('токен сгенерирован', 1 === preg_match('/^[a-f0-9]{64}$/', (string)Option::get('shef.toolsai', 'SYS_token')), true);
 
