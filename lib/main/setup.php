@@ -229,7 +229,7 @@ final class Setup
 	/**
 	 * Движки audio и text.
 	 *
-	 * @return array<string, array{ok: bool, message: string}>
+	 * @return array<string, array{ok: bool, message: string, pending?: bool}> pending — снят со старого адреса, регистрируется следующим прогоном
 	 */
 	public function ensureEngines(): array
 	{
@@ -328,7 +328,7 @@ final class Setup
 				'ok' => false,
 				'pending' => $wasMoved && $registrar->getUrl($category) === null,
 				'message' => $wasMoved && $registrar->getUrl($category) === null
-					? 'снят со старого адреса, на новом зарегистрируется следующим нажатием «Проверить и включить» (ядро держит список движков до конца запроса): '.implode('; ', $result->getErrorMessages())
+					? 'снят со старого адреса, на новом зарегистрируется следующим нажатием «Проверить и включить» (ядро держит список движков до конца запроса; не помогло и со второго раза — сбросьте кеш портала): '.implode('; ', $result->getErrorMessages())
 					: implode('; ', $result->getErrorMessages()),
 			];
 		}

@@ -455,6 +455,19 @@ Check::same(
 $probeStatus = 200;
 Option::set('shef.toolsai', 'DEF_publicurl', 'https://moved.example.by');
 
+Check::group('ротация токена, когда новый адрес не отвечает 200');
+
+$before = Option::get('shef.toolsai', 'SYS_token');
+\Bitrix\AI\ThirdParty\Manager::$calls = [];
+$probeStatus = 404;
+$report = $setup()->rotateToken();
+Check::same(
+	'токен прежний, движки не тронуты',
+	[Option::get('shef.toolsai', 'SYS_token'), \Bitrix\AI\ThirdParty\Manager::$calls, $report['token']['ok']],
+	[$before, [], false]
+);
+$probeStatus = 200;
+
 Check::group('ротация токена, когда второй шаг нужен');
 
 $before = Option::get('shef.toolsai', 'SYS_token');
