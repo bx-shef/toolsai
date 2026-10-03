@@ -52,6 +52,9 @@ class Constants
 	/** Группа блокировок агента анализа сделок — повторена в install/index.php. */
 	public const LOCK_GROUP_DEAL_HEALTH = 'shef.toolsai.dealhealth';
 
+	/** Группа блокировок агента оценки чатов (1.6.0) — повторена в install/index.php. */
+	public const LOCK_GROUP_CHAT_ASSESSMENT = 'shef.toolsai.chatassessment';
+
 	/** Параметр адреса эндпоинта с токеном. */
 	public const TOKEN_PARAM = 'token';
 

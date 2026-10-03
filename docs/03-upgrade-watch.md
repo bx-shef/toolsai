@@ -250,6 +250,20 @@ FillFields и ScoreCall в `b_crm_ai_queue` без ошибки. Обновле�
 проверить, закрыты ли метками промпты в `ai/install/prompts/world.json`:
 раскрыли — свои промпты можно выключить и сравнить.
 
+### 11б. Чаты открытых линий (1.6.0)
+
+Свои промпты узнают переписку по подписи «Имя [дата 'c']:» из
+`OpenLine::getMessagesForCopilot()`: сменит CRM формат — переписка пойдёт с
+нейтральной формулировкой, без правил про автоответы (не сломается). Своя
+оценка чатов опирается на `b_imopenlines_session` (`START_ID`, `END_ID`,
+`CLOSED`, `DATE_CLOSE`, `SPAM`), `b_im_message`, параметр сообщения `CLASS`
+(`bx-messenger-content-item-ol-…`, `…-system`), дело `ASSOCIATED_ENTITY_ID` =
+ID сессии и на подбор скрипта (`CopilotCallAssessmentController`,
+`AssessmentClientTypeResolver`, `CallAssessmentItem`). Появится у CRM своя
+оценка чатов — сравнить и решить, нужна ли модульная
+([06-chats.md](06-chats.md)). После обновления crm/imopenlines —
+`ACTIVITIES=<id> php -f cli/chat-assessment.php` на одном закрытом чате.
+
 ### 12. Таймаут 5 секунд
 
 `ThirdParty.php:24`. Если Битрикс его увеличит — нам только легче. Если

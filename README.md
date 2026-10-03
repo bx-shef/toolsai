@@ -23,6 +23,7 @@
 | **Провайдеры** | заглушка без денег (по умолчанию) и любое OpenAI-совместимое API: OpenAI, свой whisper-сервер, vLLM, LocalAI, Ollama, прокси |
 | **Расход** | свой журнал: секунды аудио и токены, деньги в микро-единицах; месячная квота; страница «ИИ: расход и остаток» |
 | **Анализ сделок** | агент: дешёвый фильтр без ИИ, вердикт по JSON Schema, комментарий в таймлайн и дело старшему |
+| **Чаты** | Копилот CRM для чатов открытых линий через движок модуля; своя оценка переписки по скрипту речевой аналитики — комментарий в сделку или лид и статистика по менеджерам |
 | **Безопасность** | токен в адресе эндпоинта, колбэк только на портал, ключ провайдера не попадает в тексты ошибок |
 | **Обновления** | «Проверить и включить» и `cli/core-api-guard.php` — после каждого обновления платформы |
 
@@ -87,6 +88,7 @@ Monolog). Пока пакет не на Packagist — с репозитория�
 | [02-deal-health.md](https://github.com/bx-shef/toolsai/blob/main/docs/02-deal-health.md) | анализ сделок |
 | [03-upgrade-watch.md](https://github.com/bx-shef/toolsai/blob/main/docs/03-upgrade-watch.md) | что ломается при обновлениях платформы |
 | [04-runbook.md](https://github.com/bx-shef/toolsai/blob/main/docs/04-runbook.md) | включение на сервере по шагам |
+| [06-chats.md](https://github.com/bx-shef/toolsai/blob/main/docs/06-chats.md) | чаты открытых линий: Копилот CRM и своя оценка переписки по скрипту |
 | [portal-check.md](https://github.com/bx-shef/toolsai/blob/main/docs/portal-check.md) | приёмка на стенде |
 | [agent-docker-test.md](https://github.com/bx-shef/toolsai/blob/main/docs/agent-docker-test.md) | промпт для ИИ-агента: приёмка на коробке в Docker |
 | [reports/docker-2026-10-02.md](https://github.com/bx-shef/toolsai/blob/main/docs/reports/docker-2026-10-02.md) | отчёт приёмки на стенде |

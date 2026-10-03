@@ -112,7 +112,7 @@ Check::group('options_conf.php собирается');
 $tabs = require $root.'/options_conf.php';
 
 Check::same('вернул список вкладок', is_array($tabs), true);
-Check::same('вкладки', array_map(static fn(Options\Tab $tab): string => $tab->getCode(), $tabs), ['DEF', 'API', 'DEAL']);
+Check::same('вкладки', array_map(static fn(Options\Tab $tab): string => $tab->getCode(), $tabs), ['DEF', 'API', 'DEAL', 'CHAT']);
 
 $names = [];
 $codes = [];
@@ -143,7 +143,7 @@ Check::same('у каждой опции есть подпись', $untitled, [])
 Check::group('коды опций — те, что читает Config');
 
 $config = (string)file_get_contents($root.'/lib/config.php');
-preg_match_all("/'((?:DEF|API|DEAL)_[a-z]+)'/", $config, $match);
+preg_match_all("/'((?:DEF|API|DEAL|CHAT)_[a-z]+)'/", $config, $match);
 // Устаревшие настройки анализа сделок (до 1.1.0) Config читает только для
 // переноса в профили (Deal\ProfileMigration) — на странице их быть не должно.
 $legacy = \Shef\ToolsAi\Config::LEGACY_DEAL_OPTIONS;

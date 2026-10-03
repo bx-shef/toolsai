@@ -60,15 +60,17 @@ lib/
   quota/                          журнал расхода, остаток, таблица
   engine/                         регистрация движков в b_ai_engine
   deal/                           анализ сделки: факты, вердикт, эскалация, таблица проверок
-  agent/                          агент анализа сделок
+  chat/                           чаты открытых линий: текст переписки, оценка по скрипту, таблица оценок
+  stats/                          страница статистики: период, разбор оценок, подсчёт провалов
+  agent/                          агенты анализа сделок и оценки чатов
 ```
 
 Всё, что можно проверить без портала, — без ядра: `Completion\Endpoint`,
 `Completion\Request`, `Completion\Dispatcher`, `Quota\Balance`,
 `Main\OptionParser`, провайдеры (через `Http\TransportInterface`),
-`Deal\Verdict`, `Deal\DealFacts`. ORM и CRM — только в `quota/meter.php`,
+`Deal\Verdict`, `Deal\DealFacts`, `Chat\Transcript`, `Chat\ChatScore`. ORM и CRM — только в `quota/meter.php`,
 `quota/ledger.php`, `*/model/*`, `deal/contextbuilder.php`,
-`deal/escalation.php`, `engine/`, агенте и `main/setup.php`.
+`deal/escalation.php`, `chat/dialogsource.php`, `engine/`, агентах и `main/setup.php`.
 
 ## Нижний регистр в `lib/` обязателен
 

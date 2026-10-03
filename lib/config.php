@@ -35,6 +35,9 @@ class Config
 	public const AGENT_INTERVAL_MAX = 10080;
 	public const DEFAULT_REANALYZE_DAYS = 7;
 	public const DEFAULT_IDLE_DAYS = 3;
+	/** Оценка чатов (1.6.0): оценок за прогон и окно «закрыт за последние N дней». */
+	public const DEFAULT_CHAT_MAX_PER_RUN = 20;
+	public const DEFAULT_CHAT_DAYS = 3;
 
 	/**
 	 * Настройки анализа сделок до 1.1.0. Теперь это поля профилей
@@ -492,4 +495,34 @@ class Config
 		return OptionParser::int($this->get('DEAL_idledays'), static::DEFAULT_IDLE_DAYS, 0, 365);
 	}
 	// endregion ////
+
+	// region Оценка чатов (1.6.0) ////
+	/** Своя оценка переписки по скрипту (Agent\ChatAssessmentAgent). По умолчанию выключена. */
+	public function isChatAssessmentEnabled(): bool
+	{
+		return OptionParser::flag($this->get('CHAT_enabled'));
+	}
+
+	/** Оценок за прогон агента, не больше: 1..200, по умолчанию 20. */
+	public function getChatMaxPerRun(): int
+	{
+		return OptionParser::int($this->get('CHAT_maxperrun'), static::DEFAULT_CHAT_MAX_PER_RUN, 1, 200);
+	}
+
+	/** Берём диалоги, закрытые за последние N дней: 1..60, по умолчанию 3. */
+	public function getChatDays(): int
+	{
+		return OptionParser::int($this->get('CHAT_days'), static::DEFAULT_CHAT_DAYS, 1, 60);
+	}
+
+	/**
+	 * ID скрипта речевой аналитики (b_crm_copilot_call_assessment) для всех
+	 * чатов. 0 — подбирать как звонку (Chat\DialogSource::pickScript()).
+	 */
+	public function getChatScriptId(): int
+	{
+		return OptionParser::id($this->get('CHAT_script'));
+	}
+	// endregion ////
+
 }

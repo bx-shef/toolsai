@@ -12,7 +12,7 @@ use Shef\ToolsAi\Main\Setup;
  * языковой файл lang/ru/options.php
  *
  * Tab(prefix)->Option(code) ~> код свойства: prefix_code. Коды вкладок
- * (DEF, API, DEAL) менять нельзя — их читает Shef\ToolsAi\Config.
+ * (DEF, API, DEAL, CHAT) менять нельзя — их читает Shef\ToolsAi\Config.
  */
 
 $response = ShOptionsConfig::getInstance(
@@ -344,5 +344,45 @@ $options->addTab(
 				]))
 		)
 );
+
+// region Чаты (1.6.0) ////
+/**
+ * Своя оценка переписки открытых линий по скрипту (Agent\ChatAssessmentAgent).
+ * Штатный Копилот для чатов (резюме, поля, дела) настраивается в CRM —
+ * ссылка на инструкцию в пояснении. Код вкладки CHAT читает Config.
+ */
+$options->addTab(
+	(new Options\Tab('CHAT'))
+		->setName(Loc::getMessage($options->moduleId.'_TAB_CHAT_NAME'))
+		->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_TITLE'))
+		->addOption(
+			(new Options\RowInfo('About'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_About', [
+					'#URL#' => Constants::STATS_FILE.'?lang='.LANGUAGE_ID,
+				]))
+				->setType(Options\TypeUIAlert::Note)
+		)
+		->addOption(
+			(new Options\Checkbox('enabled'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_enabled'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_enabled_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('maxperrun'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_maxperrun'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_maxperrun_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('days'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_days'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_days_descr'))
+		)
+		->addOption(
+			(new Options\NumberInt('script'))
+				->setTitle(Loc::getMessage($options->moduleId.'_TAB_CHAT_script'))
+				->setDescription(Loc::getMessage($options->moduleId.'_TAB_CHAT_script_descr'))
+		)
+);
+// endregion ////
 
 return $options->get();

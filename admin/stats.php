@@ -2,7 +2,8 @@
 
 /**
  * Страница «ИИ: статистика» — что ИИ сделал за период: звонки и очередь ИИ
- * CRM, анализ сделок, оценки звонков и что чаще всего не делают менеджеры.
+ * CRM, анализ сделок, оценки звонков и что чаще всего не делают менеджеры;
+ * с 1.6.0 — оценки чатов модулем и что не делают в чатах.
  *
  * Открывается заглушкой /bitrix/admin/shef_toolsai_stats.php
  * (Main\PublicPage). Только администратор, только чтение: здесь нет ни
@@ -16,6 +17,7 @@ use Bitrix\Main\Application;
 use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\UserTable;
+use Shef\ToolsAi\Chat\Model\ChatAssessmentTable;
 use Shef\ToolsAi\Deal\Model\DealCheckTable;
 use Shef\ToolsAi\Deal\Model\DealProfileTable;
 use Shef\ToolsAi\Stats\FailureCounter;
@@ -165,11 +167,52 @@ while($row = $result->fetch())
 }
 // endregion ////
 
+// region Оценки чатов (1.6.0) ////
+// Своя таблица модуля; пока «Проверить и включить» или агент её не
+// создали — блоков нет. CRITERIA — {"criteria": [...]}, разбор тот же
+// Stats\ScoreResult, подсчёт — тот же FailureCounter.
+$chatTable = ChatAssessmentTable::getTableName();
+$hasChats = $connection->isTableExists($chatTable);
+$chatTotals = [];
+$chatScores = [];
+$chatFailures = new FailureCounter();
+if($hasChats)
+{
+	foreach($fetchAll('
+		SELECT STATUS, COUNT(*) AS CNT FROM '.$helper->quote($chatTable).'
+		WHERE '.$in('CREATED_AT').'
+		GROUP BY STATUS
+	') as $row)
+	{
+		$chatTotals[(string)$row['STATUS']] = (int)$row['CNT'];
+	}
+
+	$chatScores = $fetchAll('
+		SELECT RESPONSIBLE_ID AS GRP, COUNT(*) AS CNT, AVG(SCORE) AS AVG_SCORE, MIN(SCORE) AS MIN_SCORE
+		FROM '.$helper->quote($chatTable).'
+		WHERE STATUS = \''.ChatAssessmentTable::STATUS_DONE.'\' AND SCORE IS NOT NULL AND '.$in('CREATED_AT').'
+		GROUP BY RESPONSIBLE_ID
+		ORDER BY AVG_SCORE ASC
+	');
+
+	$result = $connection->query('
+		SELECT CRITERIA, RESPONSIBLE_ID FROM '.$helper->quote($chatTable).'
+		WHERE STATUS = \''.ChatAssessmentTable::STATUS_DONE.'\' AND '.$in('CREATED_AT')
+	);
+	while($row = $result->fetch())
+	{
+		$chatFailures->add((int)$row['RESPONSIBLE_ID'], ScoreResult::parseCriteria($row['CRITERIA']));
+	}
+}
+// endregion ////
+
 // Имена — одним запросом на всех.
 $userIds = array_unique(array_filter(array_merge(
 	array_map(static fn(array $row): int => (int)$row['GRP'], $byManager),
 	array_map(static fn(array $row): int => (int)$row['GRP'], $assessments),
-	$failures->getUserIds()
+	$failures->getUserIds(),
+	array_map(static fn(array $row): int => (int)$row['GRP'], $chatScores),
+	$chatFailures->getUserIds()
 )));
 $userNames = [];
 if($userIds !== [])
@@ -299,6 +342,55 @@ $avg = static fn(mixed $value): string => $value === null ? '—' : (string)(int
 		<?php endforeach; ?>
 	</ul>
 <?php endforeach; ?>
+
+<h3><?=$msg('CHAT_SCORES')?></h3>
+<?php if(!$hasChats): ?>
+	<p style="color:#777"><?=$msg('CHAT_NO_TABLE')?></p>
+<?php else: ?>
+	<ul>
+		<li><?=$msg('CHAT_DONE')?>: <b><?=$int($chatTotals[ChatAssessmentTable::STATUS_DONE] ?? 0)?></b>,
+			<?=$msg('CHAT_SKIPPED')?>: <b><?=$int($chatTotals[ChatAssessmentTable::STATUS_SKIPPED] ?? 0)?></b>,
+			<?=$msg('CHAT_ERROR')?>: <b><?=$int($chatTotals[ChatAssessmentTable::STATUS_ERROR] ?? 0)?></b></li>
+	</ul>
+	<table class="adm-list-table">
+		<thead>
+			<tr class="adm-list-table-header">
+				<td class="adm-list-table-cell"><?=$msg('COL_MANAGER')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_CHATS')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_AVG_SCORE')?></td>
+				<td class="adm-list-table-cell"><?=$msg('COL_MIN_SCORE')?></td>
+			</tr>
+		</thead>
+		<tbody>
+		<?php foreach($chatScores as $row): ?>
+			<tr class="adm-list-table-row">
+				<td class="adm-list-table-cell"><?=$h($user((int)$row['GRP']))?></td>
+				<td class="adm-list-table-cell"><?=$int($row['CNT'])?></td>
+				<td class="adm-list-table-cell"><?=$h($avg($row['AVG_SCORE']))?>%</td>
+				<td class="adm-list-table-cell"><?=$h($avg($row['MIN_SCORE']))?>%</td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+
+	<h3><?=$msg('CHAT_FAILS')?></h3>
+	<p style="color:#777"><?=$h(Loc::getMessage('SH_TOOLSAI_STATS_CHAT_FAILS_NOTE', ['#COUNT#' => $chatFailures->getAssessed()]))?></p>
+	<ol>
+		<?php foreach($chatFailures->getTop(10) as $row): ?>
+			<li><?=$h(FailureCounter::formatRow($row))?></li>
+		<?php endforeach; ?>
+	</ol>
+	<?php foreach($chatFailures->getUserIds() as $userId): ?>
+		<?php $top = $chatFailures->getTopByUser($userId, 5); if($top === []) continue; ?>
+		<p><b><?=$h($user($userId))?></b>
+			<?=$h(Loc::getMessage('SH_TOOLSAI_STATS_CHAT_FAILS_USER', ['#COUNT#' => $chatFailures->getAssessedByUser($userId)]))?></p>
+		<ul>
+			<?php foreach($top as $row): ?>
+				<li><?=$h(FailureCounter::formatRow($row))?></li>
+			<?php endforeach; ?>
+		</ul>
+	<?php endforeach; ?>
+<?php endif; ?>
 
 </div>
 </div>
